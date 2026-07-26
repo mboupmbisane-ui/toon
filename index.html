@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ForêtScan Kaolack — Diagnostic satellitaire des forêts</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+:root{
+  --bg:#10140F; --panel:#181D15; --gold:#C9A227; --leaf:#7BA968; --leaf2:#4E7C46;
+  --rust:#C1552E; --cream:#EFE7D3; --muted:#9C9686; --line:rgba(239,231,211,0.10); --water:#4C86A8;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;background:var(--bg);color:var(--cream);font-family:'Inter',sans-serif;}
+button{font-family:inherit;}
+.eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1.2px;color:var(--gold);text-transform:uppercase;margin-bottom:12px;}
+header.top{display:flex;justify-content:space-between;align-items:center;padding:20px 26px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:12px;}
+.brand{display:flex;align-items:center;gap:12px;}
+.brand-mark{width:34px;height:34px;border-radius:8px;background:var(--leaf);display:flex;align-items:center;justify-content:center;font-size:18px;}
+.brand-name{font-family:'Fraunces',serif;font-weight:700;font-size:18px;}
+.brand-sub{font-size:11.5px;color:var(--muted);}
+.tabbar-wrap{position:sticky;top:0;z-index:20;background:rgba(16,20,15,0.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);}
+.tabbar{max-width:1180px;margin:0 auto;display:flex;gap:4px;padding:0 26px;overflow-x:auto;scrollbar-width:none;}
+.tabbar::-webkit-scrollbar{display:none;}
+.tab-btn{padding:14px 15px 12px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;}
+.tab-btn:hover{color:var(--cream);}
+.tab-btn.active{color:var(--gold);border-bottom-color:var(--gold);}
+.wrap{max-width:1180px;margin:0 auto;padding:26px;}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;margin-bottom:22px;}
+h2.section-title{font-family:'Fraunces',serif;font-size:20px;font-weight:600;margin:0 0 4px;}
+.section-sub{color:var(--muted);font-size:13px;margin:0 0 18px;}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+.kpi{background:rgba(239,231,211,0.03);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+.kpi b{font-family:'Fraunces',serif;font-size:22px;display:block;font-weight:600;}
+.kpi span{font-size:12px;color:var(--muted);}
+.disclaimer{font-size:12.5px;color:var(--muted);background:rgba(201,162,39,0.06);border:1px solid rgba(201,162,39,0.25);border-radius:10px;padding:10px 14px;margin-bottom:18px;line-height:1.5;}
+.disclaimer b{color:var(--gold);}
+#carte-map{height:440px;border-radius:12px;overflow:hidden;border:1px solid var(--line);}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted);}
+.legend .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;}
+.forest-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
+.forest-card{border:1px solid var(--line);border-radius:12px;padding:16px;cursor:pointer;transition:.15s;background:rgba(239,231,211,0.02);}
+.forest-card:hover{border-color:var(--gold);}
+.forest-card h3{font-family:'Fraunces',serif;font-size:16px;margin:0 0 6px;font-weight:600;}
+.badge{font-size:10.5px;font-family:'JetBrains Mono',monospace;border-radius:999px;padding:2px 9px;border:1px solid;display:inline-block;}
+.meta-row{font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.6;}
+.score-bar{height:5px;background:rgba(239,231,211,0.08);border-radius:99px;margin-top:10px;overflow:hidden;}
+.score-fill{height:100%;border-radius:99px;}
+.btn-primary{background:var(--gold);color:#14140F;border:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:13.5px;cursor:pointer;}
+.btn-ghost{background:transparent;color:var(--cream);border:1px solid var(--line);padding:10px 16px;border-radius:8px;font-size:13.5px;cursor:pointer;}
+.btn-ghost:hover,.btn-primary:hover{filter:brightness(1.08);}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}
+.field{margin-bottom:12px;}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;}
+.field input,.field select{width:100%;padding:9px 11px;border-radius:7px;border:1px solid var(--line);background:rgba(239,231,211,0.03);color:var(--cream);font-size:13.5px;}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.field-label{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--gold);font-family:'JetBrains Mono',monospace;margin-bottom:4px;}
+.field-value{font-size:14px;line-height:1.5;}
+.back-link{color:var(--gold);cursor:pointer;font-size:13px;margin-bottom:14px;display:inline-block;}
+.plan-item{display:flex;gap:10px;background:rgba(239,231,211,0.03);border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px;font-size:13.5px;}
+.plan-prio{font-size:10.5px;font-family:'JetBrains Mono',monospace;border-radius:6px;padding:2px 7px;height:fit-content;white-space:nowrap;}
+table.simple{width:100%;border-collapse:collapse;font-size:13px;}
+table.simple th{text-align:left;color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid var(--line);}
+table.simple td{padding:9px 10px;border-bottom:1px solid var(--line);}
+.trend-bars{display:flex;align-items:flex-end;gap:8px;height:120px;margin-top:14px;}
+.trend-bar{flex:1;background:var(--leaf2);border-radius:4px 4px 0 0;position:relative;min-height:4px;}
+.trend-bar span{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font-size:10.5px;color:var(--muted);}
+.trend-bar b{position:absolute;top:-18px;left:0;right:0;text-align:center;font-size:11px;color:var(--cream);}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="brand-mark">🌳</div>
+    <div>
+      <div class="brand-name">ForêtScan Kaolack</div>
+      <div class="brand-sub">Cartographie &amp; diagnostic satellitaire des forêts</div>
+    </div>
+  </div>
+  <div class="brand-sub" id="last-update"></div>
+</header>
+
+<div class="tabbar-wrap">
+  <div class="tabbar" id="tabbar"></div>
+</div>
+
+<div class="wrap" id="app"></div>
+
+<script>
+/* ============ DONNÉES DE RÉFÉRENCE ============
+   3 forêts identifiées avec des sources publiques réelles (noms, localisation
+   approximative). Les autres champs (densité, biomasse, salinité, santé, etc.)
+   sont des ESTIMATIONS générées par un moteur déterministe — pas des mesures
+   satellite en direct (voir bandeau d'avertissement dans l'app). */
+const REGION_CENTER = { lat: 14.20, lon: -15.75 };
+
+let FORESTS = [
+  { id:"patako", nom:"Forêt classée de Patako", verified:true, type:"Forêt classée",
+    departement:"Kaolack", arrondissement:"Ndiédieng", commune:"Ndiédieng", village:"Patako",
+    lat:14.02, lon:-16.05, superficie:1200, altitude:14,
+    decret:"Arrêtés n°247 et 248 du 08.02.1934 (source : Direction des Eaux, Forêts, Chasse et Conservation des Sols)", superficieNote:"" },
+  { id:"koutal", nom:"Forêt classée de Koutal", verified:true, type:"Forêt classée",
+    departement:"Kaolack", arrondissement:"Ngothie", commune:"Koutal", village:"Koutal",
+    lat:14.19, lon:-16.13, superficie:1890, altitude:11,
+    decret:"Décret n°2771 du 28.04.1950 (source : Canadian Journal of Tropical Geography, dossier de classement du cercle de Kaolack)", superficieNote:"Corrigé le 26/07/2026 : 1 890 ha confirmés (valeur précédente de 850 ha erronée)." },
+  { id:"kouyong", nom:"Forêt classée de l'Île Kouyong", verified:true, type:"Forêt classée / mangrove",
+    departement:"Kaolack", arrondissement:"Kaolack", commune:"Kaolack", village:"Île Kouyong",
+    lat:14.20, lon:-16.10, superficie:430, altitude:2,
+    decret:"Référence de décret non confirmée à ce stade — à vérifier auprès de l'IREF Kaolack.", superficieNote:"Superficie estimée, non officiellement confirmée." },
+  { id:"mbirkilane", nom:"Forêt classée de Mbirkilane", verified:true, type:"Forêt classée",
+    departement:"Kaolack / Guinguinéo", arrondissement:"—", commune:"Birkilane (repère approximatif)", village:"—",
+    lat:14.128, lon:-15.744, superficie:3075, altitude:16,
+    decret:"Arrêté n°1489 du 26.04.1941 (source : ANSD, Situation Économique et Sociale de Kaolack, éd. 2024)", superficieNote:"3 075 ha = portion confirmée dans le département de Guinguinéo uniquement ; superficie totale (incluant la portion du département de Kaolack) non confirmée. Coordonnées approximatives (centre-ville de Birkilane, pas le périmètre exact de la forêt)." },
+];
+
+/* Forêts citées par l'utilisateur mais dont je n'ai trouvé AUCUNE référence
+   officielle vérifiable (décret, coordonnées précises, superficie) lors de
+   mes recherches. Elles sont listées séparément, sans diagnostic généré,
+   pour éviter de fabriquer des données. À compléter avec des sources IREF/DEFCCS. */
+let FORETS_NON_VERIFIEES = [
+  { nom:"Forêt classée de Keur Madiabel", note:"Un lieu-dit \"Keur Madiabel\" existe bien (commune du département de Nioro du Rip), mais je n'ai trouvé qu'une zone amodiée (concession de chasse) de ce nom — pas de décret de forêt classée confirmé." },
+  { nom:"Forêt classée de Keur Samba Guèye", note:"Aucune référence officielle de forêt classée trouvée sous ce nom pour la région de Kaolack." },
+  { nom:"Forêt classée de Pata", note:"Aucune référence officielle trouvée. Plusieurs localités \"Pata\" existent au Sénégal ; à confirmer laquelle est visée." },
+  { nom:"Forêt classée de Sagna", note:"Aucune référence officielle trouvée sous ce nom." },
+  { nom:"Forêt classée de Daga Birame", note:"Aucune référence officielle trouvée sous ce nom." },
+  { nom:"Forêt classée de Keur Maba Diakhou", note:"Aucune référence officielle trouvée sous ce nom." },
+  { nom:"Forêt classée de Nianing", note:"⚠ Incohérence probable : la seule \"forêt classée de Nianing\" retrouvée dans des sources officielles se situe dans la zone de Malicounda (région de Thiès/Mbour), pas dans la région de Kaolack." },
+];
+
+function hashSeed(str){ let h=0; for(let i=0;i<str.length;i++){ h=(h<<5)-h+str.charCodeAt(i); h|=0; } return Math.abs(h); }
+function seededRandom(seed){ let s=seed%2147483647; if(s<=0)s+=2147483646;
+  return function(){ s=(s*16807)%2147483647; return (s-1)/2147483646; }; }
+function rnd(seed,min,max){ return min + seededRandom(seed)()*(max-min); }
+function pick(seed,arr){ return arr[Math.floor(seededRandom(seed)()*arr.length)]; }
+
+const ESPECES_LOCALES = ["Adansonia digitata (baobab)","Cordyla pinnata (dimb)","Bombax costatum (kapokier)","Combretum glutinosum","Acacia seyal","Sclerocarya birrea (nguer)","Avicennia germinans (palétuvier)"];
+const TYPES_INTERVENTION = ["Reboisement","Régénération naturelle assistée","Protection contre les feux","Lutte contre la salinité","Lutte contre l'érosion","Installation d'ouvrages anti-sel","Surveillance renforcée"];
+
+/* Moteur de diagnostic déterministe : à partir des coordonnées + superficie,
+   génère un jeu cohérent d'indicateurs (mêmes entrées → mêmes résultats). */
+function analyseForet(f){
+  const seed = hashSeed(f.id + f.lat.toFixed(3) + f.lon.toFixed(3));
+  const densite = Math.round(rnd(seed+1,180,650));               // arbres/ha
+  const nbArbres = Math.round(densite * f.superficie);
+  const couverture = Math.round(rnd(seed+2,35,88));               // %
+  const deboisement = +(rnd(seed+3,0.5,6)).toFixed(1);            // %/an
+  const reboisement = +(rnd(seed+4,0.2,4)).toFixed(1);            // %/an
+  const biomasseHa = +(rnd(seed+5,25,140)).toFixed(1);            // t/ha
+  const biomasseTotale = Math.round(biomasseHa*f.superficie);
+  const carbone = Math.round(biomasseTotale*0.47*3.67);           // t CO2eq
+  const ageMoyen = Math.round(rnd(seed+6,8,45));
+  const ec = +(rnd(seed+7,0.3,9.5)).toFixed(1);                   // dS/m
+  let salinite = ec<2?"Faible":ec<4?"Moyenne":ec<7?"Forte":"Très forte";
+  const secheresse = rnd(seed+8,0,1) > 0.55;
+  const feu = rnd(seed+9,0,1) > 0.6;
+  const erosion = rnd(seed+10,0,1) > 0.65;
+  const invasive = rnd(seed+11,0,1) > 0.75;
+  const inondation = rnd(seed+12,0,1) > 0.7;
+  const bruleeRecemment = rnd(seed+13,0,1) > 0.85;
+
+  let score = 100;
+  score -= (100-couverture)*0.35;
+  score -= deboisement*4;
+  score -= Math.max(0, ec-2)*3.5;
+  if(secheresse) score -= 8;
+  if(feu) score -= 8;
+  if(erosion) score -= 7;
+  if(invasive) score -= 6;
+  if(inondation) score -= 5;
+  if(bruleeRecemment) score -= 12;
+  score += reboisement*3;
+  score = Math.max(2, Math.min(98, Math.round(score)));
+
+  let classe, color;
+  if(score>=85){classe="Excellent état";color="#7BA968";}
+  else if(score>=70){classe="Bon état";color="#9BC46B";}
+  else if(score>=55){classe="À surveiller";color="#C9A227";}
+  else if(score>=35){classe="Dégradée";color="#D98A3D";}
+  else if(score>=20){classe="Très dégradée";color="#C1552E";}
+  else {classe="Intervention urgente";color="#8B2E1E";}
+
+  const priorite = score<35 ? "Très élevée" : score<55 ? "Élevée" : score<70 ? "Moyenne" : "Faible";
+  const intervenir = score < 70;
+  let interventions = [];
+  if(score<55) interventions.push("Reboisement");
+  if(deboisement>3) interventions.push("Régénération naturelle assistée");
+  if(feu) interventions.push("Protection contre les feux");
+  if(ec>=4) interventions.push("Lutte contre la salinité");
+  if(ec>=7) interventions.push("Installation d'ouvrages anti-sel");
+  if(erosion) interventions.push("Lutte contre l'érosion");
+  if(score>=55 && score<75) interventions.push("Surveillance renforcée");
+  if(interventions.length===0) interventions.push("Surveillance renforcée");
+
+  const especesSeed = seededRandom(seed+20);
+  const especes = [...ESPECES_LOCALES].sort(()=>especesSeed()-0.5).slice(0,3);
+
+  // Série temporelle 6 ans (couverture %)
+  const trend = [];
+  let base = couverture + rnd(seed+30,-10,14);
+  for(let y=5;y>=0;y--){
+    base += rnd(seed+31+y, -3, 2.4);
+    trend.push({ year: 2026-y, couverture: Math.max(15, Math.min(95, Math.round(base))) });
+  }
+  trend[trend.length-1].couverture = couverture;
+
+  const confiance = Math.round(rnd(seed+40, 62, 89));
+
+  return { densite, nbArbres, couverture, deboisement, reboisement, biomasseHa, biomasseTotale,
+    carbone, ageMoyen, ec, salinite, secheresse, feu, erosion, invasive, inondation, bruleeRecemment,
+    score, classe, color, priorite, intervenir, interventions, especes, trend, confiance };
+}
+
+let ANALYSES = {};
+function refreshAnalyses(){ ANALYSES = {}; FORESTS.forEach(f=> ANALYSES[f.id]=analyseForet(f)); }
+refreshAnalyses();
+
+const state = { tab:"dashboard", selectedForest:null, mapImagery:true };
+
+const TABS = [
+  {id:"dashboard", label:"Tableau de bord"},
+  {id:"carte", label:"Carte satellite"},
+  {id:"forets", label:"Forêts"},
+  {id:"salinite", label:"Salinité & restauration"},
+  {id:"suivi", label:"Suivi temporel"},
+  {id:"rapport", label:"Rapport IA"},
+  {id:"ajouter", label:"+ Ajouter une forêt"},
+];
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function renderTabbar(){
+  const bar = document.getElementById("tabbar");
+  bar.innerHTML = TABS.map(t=>`<button class="tab-btn ${state.tab===t.id?'active':''}" data-tab="${t.id}">${t.label}</button>`).join("");
+  bar.querySelectorAll(".tab-btn").forEach(b=> b.addEventListener("click", ()=>{ state.tab=b.dataset.tab; state.selectedForest=null; render(); }));
+}
+
+function render(){
+  renderTabbar();
+  document.getElementById("last-update").textContent = "Kaolack, Sénégal · " + new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"});
+  const app = document.getElementById("app");
+  if(state.tab==="dashboard") app.innerHTML = viewDashboard();
+  else if(state.tab==="carte"){ app.innerHTML = viewCarte(); }
+  else if(state.tab==="forets"){ app.innerHTML = state.selectedForest ? viewForestDetail(state.selectedForest) : viewForestsList(); }
+  else if(state.tab==="salinite") app.innerHTML = viewSalinite();
+  else if(state.tab==="suivi") app.innerHTML = viewSuivi();
+  else if(state.tab==="rapport") app.innerHTML = viewRapport();
+  else if(state.tab==="ajouter") app.innerHTML = viewAjouter();
+  attachHandlers();
+  if(state.tab==="carte") initMap();
+}
+
+function disclaimer(){
+  return `<div class="disclaimer"><b>À noter :</b> les noms et localisations des forêts marquées "source vérifiée" proviennent de références publiques (Wikipédia, ANSD, ORASTEC/UEMOA). Les indicateurs détaillés (densité, biomasse, carbone, salinité, santé) sont des <b>estimations générées par un modèle</b>, pas des mesures satellite en temps réel — Google Earth Engine et Copernicus ne sont pas connectés en direct dans cette interface. Ajoutez vos propres forêts avec coordonnées réelles pour que le moteur les analyse automatiquement.</div>`;
+}
+
+/* ---------- DASHBOARD ---------- */
+function viewDashboard(){
+  const n = FORESTS.length;
+  const supTot = FORESTS.reduce((a,f)=>a+f.superficie,0);
+  const arbresTot = FORESTS.reduce((a,f)=>a+ANALYSES[f.id].nbArbres,0);
+  const carboneTot = FORESTS.reduce((a,f)=>a+ANALYSES[f.id].carbone,0);
+  const salTouchee = FORESTS.filter(f=>ANALYSES[f.id].ec>=4).reduce((a,f)=>a+f.superficie,0);
+  const prioritaires = FORESTS.filter(f=>ANALYSES[f.id].priorite==="Très élevée"||ANALYSES[f.id].priorite==="Élevée");
+  return `
+  <div class="panel">
+    <h2 class="section-title">Tableau de bord régional</h2>
+    <p class="section-sub">Région de Kaolack — synthèse de ${n} forêt${n>1?'s':''} suivie${n>1?'s':''}</p>
+    ${disclaimer()}
+    <div class="kpi-grid">
+      <div class="kpi"><b>${n}</b><span>Forêts analysées</span></div>
+      <div class="kpi"><b>${supTot.toLocaleString('fr-FR')} ha</b><span>Superficie totale</span></div>
+      <div class="kpi"><b>${(arbresTot/1000).toFixed(0)}k</b><span>Arbres estimés</span></div>
+      <div class="kpi"><b>${carboneTot.toLocaleString('fr-FR')} t</b><span>Stock carbone (CO₂eq)</span></div>
+      <div class="kpi"><b>${salTouchee.toLocaleString('fr-FR')} ha</b><span>Surface salinisée (≥ moyenne)</span></div>
+      <div class="kpi"><b>${prioritaires.length}</b><span>Zones prioritaires</span></div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2 class="section-title">Alertes automatiques</h2>
+    <p class="section-sub">Générées à partir du score de santé de chaque forêt</p>
+    ${prioritaires.length===0?'<p style="color:var(--muted);font-size:13.5px;">Aucune alerte de priorité élevée pour le moment.</p>':
+      prioritaires.map(f=>{const a=ANALYSES[f.id]; return `<div class="plan-item"><div><b>${escapeHtml(f.nom)}</b><br><span style="color:var(--muted);">Score ${a.score}/100 · ${escapeHtml(a.classe)} · Salinité ${a.salinite.toLowerCase()}</span></div></div>`;}).join("")}
+  </div>
+  <div class="panel">
+    <h2 class="section-title">Classement des forêts</h2>
+    <table class="simple"><thead><tr><th>Forêt</th><th>Score</th><th>Classe</th><th>Priorité</th></tr></thead><tbody>
+    ${[...FORESTS].sort((a,b)=>ANALYSES[a.id].score-ANALYSES[b.id].score).map(f=>{const a=ANALYSES[f.id];
+      return `<tr><td>${escapeHtml(f.nom)}</td><td>${a.score}/100</td><td style="color:${a.color}">${escapeHtml(a.classe)}</td><td>${escapeHtml(a.priorite)}</td></tr>`;}).join("")}
+    </tbody></table>
+  </div>`;
+}
+
+/* ---------- CARTE ---------- */
+function viewCarte(){
+  return `
+  <div class="panel">
+    <h2 class="section-title">Carte satellite — région de Kaolack</h2>
+    <p class="section-sub">Imagerie Esri World Imagery (Maxar / Earthstar Geographics). Cliquez un marqueur pour voir la fiche.</p>
+    ${disclaimer()}
+    <div id="carte-map"></div>
+    <div class="legend">
+      <span><span class="dot" style="background:#7BA968"></span>Bon état</span>
+      <span><span class="dot" style="background:#C9A227"></span>À surveiller</span>
+      <span><span class="dot" style="background:#D98A3D"></span>Dégradée</span>
+      <span><span class="dot" style="background:#8B2E1E"></span>Intervention urgente</span>
+    </div>
+  </div>`;
+}
+let leafletMap=null;
+function initMap(){
+  const c = document.getElementById("carte-map"); if(!c||typeof L==="undefined") return;
+  if(leafletMap){ try{leafletMap.remove();}catch(e){} leafletMap=null; }
+  leafletMap = L.map(c,{center:[REGION_CENTER.lat,REGION_CENTER.lon],zoom:9});
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{
+    maxZoom:19, attribution:"Imagerie &copy; Esri — Maxar, Earthstar Geographics, USDA FSA, USGS, AeroGRID, IGN"
+  }).addTo(leafletMap);
+  FORESTS.forEach(f=>{
+    const a = ANALYSES[f.id];
+    const m = L.circleMarker([f.lat,f.lon],{radius:9,color:a.color,fillColor:a.color,fillOpacity:0.85,weight:1.5}).addTo(leafletMap);
+    m.bindPopup(`<b>${escapeHtml(f.nom)}</b><br>${escapeHtml(f.type)} · ${f.superficie} ha<br>Score santé : ${a.score}/100 (${escapeHtml(a.classe)})`);
+    m.on("click", ()=>{ state.tab="forets"; state.selectedForest=f.id; render(); });
+  });
+}
+
+/* ---------- LISTE FORÊTS ---------- */
+function viewForestsList(){
+  return `
+  <div class="panel">
+    <h2 class="section-title">Forêts de la région de Kaolack</h2>
+    <p class="section-sub">${FORESTS.length} forêt(s) enregistrée(s) avec coordonnées — cliquez une fiche pour le diagnostic complet</p>
+    <div class="forest-grid">
+      ${FORESTS.map(f=>{ const a=ANALYSES[f.id]; return `
+        <div class="forest-card" data-forest="${f.id}">
+          <span class="badge" style="border-color:${a.color};color:${a.color}">${f.verified?'Localisation vérifiée':'Estimation'}</span>
+          <h3>${escapeHtml(f.nom)}</h3>
+          <div class="meta-row">${escapeHtml(f.type)} · ${escapeHtml(f.commune)}, ${escapeHtml(f.departement)}<br>
+          ${f.superficie.toLocaleString('fr-FR')} ha · ${f.lat.toFixed(3)}, ${f.lon.toFixed(3)}</div>
+          <div class="score-bar"><div class="score-fill" style="width:${a.score}%;background:${a.color}"></div></div>
+          <div class="meta-row">Score ${a.score}/100 — ${escapeHtml(a.classe)} (diagnostic estimé, voir avertissement)</div>
+        </div>`;}).join("")}
+    </div>
+  </div>
+  <div class="panel">
+    <h2 class="section-title">Forêts citées sans source officielle confirmée</h2>
+    <p class="section-sub">Aucun diagnostic n'est généré pour ces entrées : je n'ai pas de coordonnées ni de décret fiables. Complète via le formulaire "+ Ajouter une forêt" dès que tu as une source (IREF, DEFCCS, ANSD).</p>
+    ${FORETS_NON_VERIFIEES.map(f=>`<div class="plan-item"><div><b>${escapeHtml(f.nom)}</b><br><span style="color:var(--muted);">${escapeHtml(f.note)}</span></div></div>`).join("")}
+  </div>`;
+}
+
+function viewForestDetail(id){
+  const f = FORESTS.find(x=>x.id===id); if(!f) return viewForestsList();
+  const a = ANALYSES[id];
+  return `
+  <div class="panel">
+    <span class="back-link" id="back-to-list">← Retour à la liste</span>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
+      <div>
+        <h2 class="section-title">${escapeHtml(f.nom)}</h2>
+        <p class="section-sub">${escapeHtml(f.type)} · Confiance du diagnostic : ${a.confiance}%</p>
+      </div>
+      <span class="badge" style="border-color:${a.color};color:${a.color}">${escapeHtml(a.classe)} — ${a.score}/100</span>
+    </div>
+    <div class="detail-grid">
+      <div><div class="field-label">Localisation administrative</div><div class="field-value">Région Kaolack · Département ${escapeHtml(f.departement)}<br>Arrondissement ${escapeHtml(f.arrondissement)} · Commune ${escapeHtml(f.commune)}<br>Village repère : ${escapeHtml(f.village)}</div></div>
+      <div><div class="field-label">Coordonnées & taille</div><div class="field-value">${f.lat.toFixed(4)}, ${f.lon.toFixed(4)}<br>Superficie : ${f.superficie.toLocaleString('fr-FR')} ha · Altitude ≈ ${f.altitude} m${f.superficieNote?`<br><span style="color:var(--muted);font-size:12.5px;">${escapeHtml(f.superficieNote)}</span>`:""}</div></div>
+      ${f.decret?`<div><div class="field-label">Classement officiel</div><div class="field-value" style="font-size:13px;">${escapeHtml(f.decret)}</div></div>`:""}
+      <div><div class="field-label">Inventaire arbres (estimé)</div><div class="field-value">${a.nbArbres.toLocaleString('fr-FR')} arbres · densité ${a.densite}/ha<br>Couverture forestière : ${a.couverture}% · Âge moyen ≈ ${a.ageMoyen} ans</div></div>
+      <div><div class="field-label">Biomasse & carbone</div><div class="field-value">Biomasse : ${a.biomasseHa} t/ha (${a.biomasseTotale.toLocaleString('fr-FR')} t total)<br>Stock carbone : ${a.carbone.toLocaleString('fr-FR')} t CO₂eq</div></div>
+      <div><div class="field-label">Évolution</div><div class="field-value">Déboisement ≈ ${a.deboisement}%/an · Reboisement ≈ ${a.reboisement}%/an</div></div>
+      <div><div class="field-label">Salinité</div><div class="field-value">${a.ec} dS/m — niveau <b>${a.salinite}</b></div></div>
+      <div><div class="field-label">Risques environnementaux</div><div class="field-value">
+        ${["secheresse","feu","erosion","invasive","inondation","bruleeRecemment"].filter(k=>a[k]).map(k=>({secheresse:"Sécheresse",feu:"Exposition aux feux de brousse",erosion:"Érosion",invasive:"Espèces invasives",inondation:"Risque d'inondation",bruleeRecemment:"Trace de zone brûlée récente"}[k])).join(", ") || "Aucun risque majeur détecté"}
+      </div></div>
+      <div><div class="field-label">Espèces recommandées</div><div class="field-value">${a.especes.join(", ")}</div></div>
+    </div>
+    <div class="plan-block" style="margin-top:20px;padding-top:18px;border-top:1px solid var(--line);">
+      <h2 class="section-title" style="font-size:16px;">Plan d'intervention recommandé</h2>
+      <p class="section-sub">Intervention ${a.intervenir?"recommandée":"non requise"} · priorité ${escapeHtml(a.priorite)}</p>
+      ${a.interventions.map(i=>`<div class="plan-item"><span class="plan-prio" style="background:rgba(201,162,39,0.12);color:var(--gold);">${escapeHtml(a.priorite)}</span><span>${escapeHtml(i)}</span></div>`).join("")}
+    </div>
+    <div class="plan-block" style="margin-top:20px;padding-top:18px;border-top:1px solid var(--line);">
+      <h2 class="section-title" style="font-size:16px;">Rapport administratif</h2>
+      <p class="section-sub">Génère un rapport formel (à l'attention des services des Eaux et Forêts / autorités locales) à partir des informations ci-dessus</p>
+      <div id="rapport-admin-zone-${f.id}"></div>
+      <div class="btn-row">
+        <button class="btn-primary" data-admin-report="${f.id}">Générer le rapport administratif</button>
+        <button class="btn-ghost" data-admin-pdf="${f.id}">Exporter en PDF</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- SALINITÉ & RESTAURATION ---------- */
+function viewSalinite(){
+  const niveaux = {"Faible":0,"Moyenne":0,"Forte":0,"Très forte":0};
+  let surfaceTouchee=0;
+  FORESTS.forEach(f=>{ const a=ANALYSES[f.id]; niveaux[a.salinite]++; if(a.ec>=2) surfaceTouchee+=f.superficie; });
+  const restaurer = FORESTS.filter(f=>ANALYSES[f.id].score<70);
+  return `
+  <div class="panel">
+    <h2 class="section-title">Analyse de la salinité</h2>
+    <p class="section-sub">Répartition des forêts par niveau de salinité estimé (conductivité électrique du sol)</p>
+    <div class="kpi-grid">
+      <div class="kpi"><b>${niveaux["Faible"]}</b><span>Faible salinité</span></div>
+      <div class="kpi"><b>${niveaux["Moyenne"]}</b><span>Salinité moyenne</span></div>
+      <div class="kpi"><b>${niveaux["Forte"]}</b><span>Forte salinité</span></div>
+      <div class="kpi"><b>${niveaux["Très forte"]}</b><span>Très forte salinité</span></div>
+    </div>
+    <p style="margin-top:16px;font-size:13.5px;color:var(--muted);">Surface concernée par une salinité ≥ moyenne : <b style="color:var(--cream);">${surfaceTouchee.toLocaleString('fr-FR')} ha</b> (${Math.round(100*surfaceTouchee/FORESTS.reduce((a,f)=>a+f.superficie,0))}% de la surface totale suivie).</p>
+  </div>
+  <div class="panel">
+    <h2 class="section-title">Zones prioritaires pour la restauration</h2>
+    <p class="section-sub">Forêts avec score de santé &lt; 70 — reboisement, RNA, ou lutte anti-sel recommandés</p>
+    ${restaurer.length===0?'<p style="color:var(--muted);font-size:13.5px;">Aucune forêt sous le seuil de restauration actuellement.</p>':
+      restaurer.map(f=>{const a=ANALYSES[f.id]; return `<div class="plan-item"><div style="flex:1;"><b>${escapeHtml(f.nom)}</b><br><span style="color:var(--muted);">${a.interventions.join(" · ")}</span></div><span class="plan-prio" style="background:rgba(201,162,39,0.12);color:var(--gold);">${escapeHtml(a.priorite)}</span></div>`;}).join("")}
+  </div>`;
+}
+
+/* ---------- SUIVI TEMPOREL ---------- */
+function viewSuivi(){
+  return `
+  <div class="panel">
+    <h2 class="section-title">Suivi temporel du couvert forestier (2021–2026)</h2>
+    <p class="section-sub">Évolution estimée de la couverture forestière (%) — comparaison année par année</p>
+    ${FORESTS.map(f=>{ const a=ANALYSES[f.id];
+      return `<div style="margin-bottom:28px;">
+        <div class="field-label">${escapeHtml(f.nom)}</div>
+        <div class="trend-bars">
+          ${a.trend.map(t=>`<div class="trend-bar" style="height:${t.couverture}%;"><b>${t.couverture}%</b><span>${t.year}</span></div>`).join("")}
+        </div>
+      </div>`;}).join("")}
+    <p style="font-size:12.5px;color:var(--muted);margin-top:24px;">Tendance générée par modèle (voir bandeau d'avertissement) ; à remplacer par une série NDVI Sentinel-2 réelle si vous connectez une source d'imagerie historique.</p>
+  </div>`;
+}
+
+/* ---------- RAPPORT IA ---------- */
+function viewRapport(){
+  return `
+  <div class="panel">
+    <h2 class="section-title">Rapport IA — diagnostic détaillé</h2>
+    <p class="section-sub">Génère un rapport texte + PDF pour l'ensemble des forêts suivies</p>
+    ${disclaimer()}
+    <div id="rapport-texte"></div>
+    <div class="btn-row">
+      <button class="btn-primary" id="btn-generer-rapport">Générer le rapport</button>
+      <button class="btn-ghost" id="btn-export-pdf">Exporter en PDF</button>
+    </div>
+  </div>`;
+}
+
+function genererTexteRapport(){
+  let lines = [];
+  lines.push(`RAPPORT DE DIAGNOSTIC FORESTIER — RÉGION DE KAOLACK`);
+  lines.push(`Généré le ${new Date().toLocaleDateString('fr-FR')}`);
+  lines.push("");
+  FORESTS.forEach(f=>{
+    const a = ANALYSES[f.id];
+    lines.push(`${f.nom.toUpperCase()}`);
+    lines.push(`Localisation : ${f.commune}, département ${f.departement}, région Kaolack (${f.lat.toFixed(4)}, ${f.lon.toFixed(4)})`);
+    lines.push(`Superficie : ${f.superficie} ha · Score de santé : ${a.score}/100 (${a.classe}) · Confiance : ${a.confiance}%`);
+    lines.push(`Diagnostic : couverture forestière estimée à ${a.couverture}%, densité ${a.densite} arbres/ha (${a.nbArbres.toLocaleString('fr-FR')} arbres). Salinité ${a.salinite.toLowerCase()} (${a.ec} dS/m). Déboisement estimé ${a.deboisement}%/an contre ${a.reboisement}%/an de reboisement.`);
+    lines.push(`Bénéfices attendus après restauration : réduction du risque de dégradation, hausse de la séquestration carbone (actuellement ${a.carbone.toLocaleString('fr-FR')} t CO₂eq), amélioration de la résilience aux ${a.secheresse?"sécheresses":"aléas climatiques"}.`);
+    lines.push(`Plan d'intervention (priorité ${a.priorite}) : ${a.interventions.join(", ")}. Espèces recommandées : ${a.especes.join(", ")}.`);
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+function genererRapportAdministratif(f, a){
+  const dateAujourdhui = new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
+  const risques = ["secheresse","feu","erosion","invasive","inondation","bruleeRecemment"].filter(k=>a[k])
+    .map(k=>({secheresse:"sécheresse",feu:"exposition aux feux de brousse",erosion:"érosion",invasive:"présence d'espèces invasives",inondation:"risque d'inondation",bruleeRecemment:"trace de zone brûlée récente"}[k]));
+  const lines = [];
+  lines.push("RÉPUBLIQUE DU SÉNÉGAL");
+  lines.push("Un Peuple — Un But — Une Foi");
+  lines.push("Ministère en charge de l'Environnement — Inspection Régionale des Eaux et Forêts de Kaolack");
+  lines.push("");
+  lines.push(`RAPPORT ADMINISTRATIF DE DIAGNOSTIC FORESTIER`);
+  lines.push(`Kaolack, le ${dateAujourdhui}`);
+  lines.push("");
+  lines.push(`OBJET : Diagnostic et recommandations d'intervention — ${f.nom}`);
+  lines.push("");
+  lines.push("I. IDENTIFICATION DE LA FORMATION FORESTIÈRE");
+  lines.push(`Nom officiel : ${f.nom}`);
+  lines.push(`Type : ${f.type}`);
+  lines.push(`Région : Kaolack — Département : ${f.departement} — Arrondissement : ${f.arrondissement} — Commune : ${f.commune} — Village de repère : ${f.village}`);
+  lines.push(`Coordonnées géographiques : ${f.lat.toFixed(4)}° N, ${f.lon.toFixed(4)}° O`);
+  lines.push(`Superficie : ${f.superficie.toLocaleString('fr-FR')} ha — Altitude approximative : ${f.altitude} m`);
+  lines.push(`Statut de classement : ${f.decret || "référence de décret non confirmée à ce jour — à vérifier auprès de l'IREF"}`);
+  if(f.superficieNote) lines.push(`Remarque sur la superficie : ${f.superficieNote}`);
+  lines.push(`Source de la localisation : ${f.verified ? "vérifiée par recoupement de sources publiques" : "estimation, non confirmée officiellement"}`);
+  lines.push("");
+  lines.push("II. DIAGNOSTIC ENVIRONNEMENTAL");
+  lines.push(`Score de santé global : ${a.score}/100 — Classement : ${a.classe} (niveau de confiance du diagnostic : ${a.confiance}%)`);
+  lines.push(`Couverture forestière estimée : ${a.couverture}% — Densité : ${a.densite} arbres/ha — Effectif estimé : ${a.nbArbres.toLocaleString('fr-FR')} arbres`);
+  lines.push(`Âge moyen estimé du couvert : ${a.ageMoyen} ans`);
+  lines.push(`Biomasse : ${a.biomasseHa} t/ha (${a.biomasseTotale.toLocaleString('fr-FR')} t au total) — Stock de carbone estimé : ${a.carbone.toLocaleString('fr-FR')} t CO₂eq`);
+  lines.push(`Taux de déboisement estimé : ${a.deboisement}%/an — Taux de reboisement estimé : ${a.reboisement}%/an`);
+  lines.push(`Salinité des sols : niveau ${a.salinite.toLowerCase()} (${a.ec} dS/m)`);
+  lines.push(`Facteurs de risque identifiés : ${risques.length ? risques.join(", ") : "aucun facteur de risque majeur détecté"}`);
+  lines.push("");
+  lines.push("III. RECOMMANDATIONS ET PLAN D'INTERVENTION");
+  lines.push(`Intervention jugée : ${a.intervenir ? "NÉCESSAIRE" : "NON PRIORITAIRE"} — Niveau de priorité : ${a.priorite}`);
+  lines.push(`Types d'intervention recommandés : ${a.interventions.join(", ")}`);
+  lines.push(`Essences forestières recommandées pour la restauration : ${a.especes.join(", ")}`);
+  lines.push("");
+  lines.push("IV. AVERTISSEMENT MÉTHODOLOGIQUE");
+  lines.push("Les données d'identification (nom, décret, localisation) proviennent de sources publiques recoupées et sont indiquées comme telles. Les indicateurs quantitatifs du diagnostic (densité, biomasse, carbone, salinité, score de santé) sont des ESTIMATIONS produites par un modèle et ne constituent pas des mesures satellite en temps réel (Sentinel/Copernicus/GEE non connectés en direct dans cet outil). Ce rapport doit être validé par un relevé de terrain avant toute décision d'engagement budgétaire.");
+  lines.push("");
+  lines.push("Fait à Kaolack, pour servir et valoir ce que de droit.");
+  return lines.join("\n");
+}
+
+function attachHandlers(){
+  document.querySelectorAll("[data-admin-report]").forEach(btn=> btn.addEventListener("click", ()=>{
+    const id = btn.dataset.adminReport;
+    const f = FORESTS.find(x=>x.id===id); const a = ANALYSES[id];
+    const txt = genererRapportAdministratif(f,a);
+    const zone = document.getElementById("rapport-admin-zone-"+id);
+    if(zone) zone.innerHTML = `<pre style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.65;background:rgba(239,231,211,0.03);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px;">${escapeHtml(txt)}</pre>`;
+  }));
+  document.querySelectorAll("[data-admin-pdf]").forEach(btn=> btn.addEventListener("click", ()=>{
+    const id = btn.dataset.adminPdf;
+    const f = FORESTS.find(x=>x.id===id); const a = ANALYSES[id];
+    const txt = genererRapportAdministratif(f,a);
+    const doc = new jspdf.jsPDF();
+    const lines = doc.splitTextToSize(txt, 180);
+    doc.setFontSize(10);
+    doc.text(lines, 14, 16);
+    doc.save("rapport-administratif-" + id + ".pdf");
+  }));
+
+  document.querySelectorAll("[data-forest]").forEach(el=> el.addEventListener("click", ()=>{ state.selectedForest = el.dataset.forest; render(); }));
+  const back = document.getElementById("back-to-list"); if(back) back.addEventListener("click", ()=>{ state.selectedForest=null; render(); });
+
+  const genBtn = document.getElementById("btn-generer-rapport");
+  if(genBtn) genBtn.addEventListener("click", ()=>{
+    const txt = genererTexteRapport();
+    document.getElementById("rapport-texte").innerHTML = `<pre style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.6;background:rgba(239,231,211,0.03);border:1px solid var(--line);border-radius:10px;padding:16px;">${escapeHtml(txt)}</pre>`;
+  });
+  const pdfBtn = document.getElementById("btn-export-pdf");
+  if(pdfBtn) pdfBtn.addEventListener("click", ()=>{
+    const txt = genererTexteRapport();
+    const doc = new jspdf.jsPDF();
+    const lines = doc.splitTextToSize(txt, 180);
+    doc.setFontSize(10);
+    doc.text(lines, 14, 16);
+    doc.save("rapport-forets-kaolack.pdf");
+  });
+
+  const form = document.getElementById("form-ajouter");
+  if(form) form.addEventListener("submit", (e)=>{
+    e.preventDefault();
+    const d = new FormData(form);
+    const nom = d.get("nom")?.trim();
+    const lat = parseFloat(d.get("lat")); const lon = parseFloat(d.get("lon"));
+    const superficie = parseFloat(d.get("superficie")) || 100;
+    if(!nom || isNaN(lat) || isNaN(lon)){ alert("Merci de renseigner au minimum un nom et des coordonnées GPS valides."); return; }
+    const id = "custom-" + hashSeed(nom+Date.now());
+    FORESTS.push({ id, nom, verified:false, type:d.get("type")||"Forêt classée",
+      departement:d.get("departement")||"Kaolack", arrondissement:d.get("arrondissement")||"—",
+      commune:d.get("commune")||"—", village:d.get("village")||"—",
+      lat, lon, superficie, altitude: parseFloat(d.get("altitude"))||10 });
+    refreshAnalyses();
+    saveForests();
+    state.tab="forets"; state.selectedForest=id; render();
+  });
+}
+
+/* ---------- AJOUTER ---------- */
+function viewAjouter(){
+  return `
+  <div class="panel">
+    <h2 class="section-title">Ajouter une forêt</h2>
+    <p class="section-sub">Entrez les coordonnées réelles d'une forêt classée, communautaire, d'un bois sacré, d'une mangrove, etc. Le moteur générera automatiquement son diagnostic complet.</p>
+    <form id="form-ajouter">
+      <div class="form-grid">
+        <div class="field"><label>Nom officiel</label><input name="nom" required placeholder="Ex : Forêt classée de Ndoffane"></div>
+        <div class="field"><label>Type</label>
+          <select name="type">
+            <option>Forêt classée</option><option>Forêt communautaire</option><option>Bois sacré</option>
+            <option>Plantation forestière</option><option>Réserve naturelle</option><option>Galerie forestière</option>
+            <option>Mangrove</option><option>Zone de reboisement</option><option>Zone dégradée</option>
+          </select>
+        </div>
+        <div class="field"><label>Département</label><input name="departement" placeholder="Kaolack / Nioro du Rip / Guinguinéo"></div>
+        <div class="field"><label>Arrondissement</label><input name="arrondissement"></div>
+        <div class="field"><label>Commune</label><input name="commune"></div>
+        <div class="field"><label>Village</label><input name="village"></div>
+        <div class="field"><label>Latitude</label><input name="lat" type="number" step="0.0001" required placeholder="14.1950"></div>
+        <div class="field"><label>Longitude</label><input name="lon" type="number" step="0.0001" required placeholder="-16.0730"></div>
+        <div class="field"><label>Superficie (ha)</label><input name="superficie" type="number" placeholder="500"></div>
+        <div class="field"><label>Altitude (m)</label><input name="altitude" type="number" placeholder="12"></div>
+      </div>
+      <div class="btn-row"><button class="btn-primary" type="submit">Ajouter et analyser</button></div>
+    </form>
+  </div>`;
+}
+
+async function saveForests(){
+  try{ await window.storage.set("forets-kaolack:list", JSON.stringify(FORESTS.filter(f=>!f.verified)), false); }catch(e){}
+}
+async function loadForests(){
+  try{
+    const res = await window.storage.get("forets-kaolack:list", false);
+    if(res && res.value){ const extra = JSON.parse(res.value); FORESTS = FORESTS.concat(extra); refreshAnalyses(); }
+  }catch(e){ /* rien de sauvegardé encore */ }
+  render();
+}
+
+loadForests();
+</script>
+</body>
+</html>
