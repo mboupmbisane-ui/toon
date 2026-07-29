@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SalinConnect AI — Diagnostic Satellitaire de Salinité</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+
+<style>
+/* ============================= DESIGN TOKENS =============================
+   Palette — inspired by the Sahel: night-green terrain, sun-baked gold,
+   and the five-step salinity risk scale specified in the brief.
+   --earth-950  #0F1B14   deepest background (baobab-shade)
+   --earth-900  #14241A   panel background
+   --earth-800  #1C3024   raised surface / cards
+   --earth-700  #2A4234   borders, dividers
+   --sand-100   #F3EEDF   primary text on dark
+   --sand-300   #C9C2A8   secondary text
+   --gold-500   #C9A227   accent — signature color (Sahel sun)
+   --gold-300   #E4C765   accent hover / highlight
+   risk: --risk-normal #4C9A57 / --risk-watch #E0C64C / --risk-medium #E0893C
+         --risk-high #C4402F / --risk-severe #6E1F27
+============================================================================ */
+:root{
+  --earth-950:#0F1B14; --earth-900:#14241A; --earth-800:#1C3024; --earth-700:#2A4234;
+  --sand-100:#F3EEDF; --sand-300:#C9C2A8; --sand-500:#8E9686;
+  --gold-500:#C9A227; --gold-300:#E4C765;
+  --risk-normal:#4C9A57; --risk-watch:#E0C64C; --risk-medium:#E0893C; --risk-high:#C4402F; --risk-severe:#6E1F27;
+  --font-display:'Fraunces',serif; --font-body:'Inter',sans-serif; --font-mono:'JetBrains Mono',monospace;
+  --radius:10px; --shadow:0 8px 24px rgba(0,0,0,.35);
+}
+[data-theme="light"]{
+  --earth-950:#F6F3E9; --earth-900:#FFFFFF; --earth-800:#F0ECDD; --earth-700:#E1DAC2;
+  --sand-100:#20301F; --sand-300:#4B5B44; --sand-500:#6E7C67;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html{scroll-behavior:smooth;}
+body{font-family:var(--font-body); background:var(--earth-950); color:var(--sand-100); overflow:hidden; transition:background .3s;}
+::-webkit-scrollbar{width:8px; height:8px;}
+::-webkit-scrollbar-thumb{background:var(--earth-700); border-radius:4px;}
+a{color:inherit;}
+button{font-family:inherit; cursor:pointer;}
+.hidden{display:none !important;}
+:focus-visible{outline:2px solid var(--gold-500); outline-offset:2px; border-radius:4px;}
+@media (prefers-reduced-motion: reduce){ *{animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important;} }
+
+/* Signature strip — a slow-moving "satellite pass" gradient across the very top edge of the app */
+#scanStrip{
+  position:fixed; top:0; left:0; right:0; height:2.5px; z-index:5000; pointer-events:none;
+  background:linear-gradient(90deg, transparent, var(--gold-500) 18%, var(--risk-normal) 50%, var(--gold-500) 82%, transparent);
+  background-size:220% 100%; animation:stripSweep 7s linear infinite;
+  opacity:.85;
+}
+@keyframes stripSweep{ 0%{background-position:0% 0;} 100%{background-position:-220% 0;} }
+
+/* Lueur ambiante "rayonnante" — halo doré diffus en haut de l'app */
+#glowLayer{position:fixed; top:-200px; left:50%; transform:translateX(-50%); width:1100px; height:520px; z-index:0; pointer-events:none;
+  background:radial-gradient(ellipse at center, rgba(201,162,39,.16) 0%, rgba(201,162,39,.05) 45%, transparent 72%);
+  filter:blur(10px); opacity:.9;}
+[data-theme="light"] #glowLayer{opacity:.5;}
+
+/* ---------- RUBRIQUE STRIP — barre de rubriques toujours visible ---------- */
+#rubriqueStrip{
+  display:flex; gap:8px; padding:10px 16px; overflow-x:auto; flex-shrink:0;
+  background:var(--earth-900); border-bottom:1px solid var(--earth-700); scrollbar-width:none;
+}
+#rubriqueStrip::-webkit-scrollbar{display:none;}
+.rubrique-chip{
+  display:flex; align-items:center; gap:7px; padding:8px 14px; border-radius:20px; white-space:nowrap;
+  font-size:12.5px; font-weight:600; color:var(--sand-300); background:var(--earth-800); border:1px solid var(--earth-700);
+  cursor:pointer; font-family:inherit; flex-shrink:0; position:relative; transition:all .18s ease;
+}
+.rubrique-chip .ic{font-size:14px;}
+.rubrique-chip:hover{color:var(--sand-100); border-color:var(--gold-500);}
+.rubrique-chip.active{
+  color:var(--earth-950); background:linear-gradient(135deg, var(--gold-300), var(--gold-500));
+  border-color:var(--gold-500); box-shadow:0 0 0 1px rgba(201,162,39,.3), 0 4px 14px rgba(201,162,39,.35);
+}
+.rubrique-chip .nav-badge{position:static; margin-left:2px;}
+
+/* ---------- APP SHELL ---------- */
+#mainApp{display:flex; height:100vh; width:100vw;}
+#sidebarBackdrop{display:none;}
+#sidebar{
+  width:230px; flex-shrink:0; background:var(--earth-900); border-right:1px solid var(--earth-700);
+  display:flex; flex-direction:column; padding:18px 0; transition:transform .25s ease;
+}
+.side-brand{display:flex; align-items:center; gap:8px; padding:0 20px 20px; border-bottom:1px solid var(--earth-700); margin-bottom:14px;}
+.side-brand .sat{font-size:20px; filter:drop-shadow(0 0 6px rgba(201,162,39,.5));}
+.side-brand b{font-family:var(--font-display); font-size:16.5px;}
+.side-brand b span{color:var(--gold-500);}
+.live-pill{display:flex; align-items:center; gap:6px; margin:2px 20px 16px; font-size:10.5px; color:var(--sand-500); letter-spacing:.4px; text-transform:uppercase;}
+.live-dot{width:6px; height:6px; border-radius:50%; background:var(--risk-normal); box-shadow:0 0 0 0 rgba(76,154,87,.6); animation:pulseDot 2.2s ease-in-out infinite;}
+@keyframes pulseDot{ 0%{box-shadow:0 0 0 0 rgba(76,154,87,.55);} 70%{box-shadow:0 0 0 6px rgba(76,154,87,0);} 100%{box-shadow:0 0 0 0 rgba(76,154,87,0);} }
+.nav-group{padding:0 12px;}
+.nav-label{font-size:10.5px; text-transform:uppercase; letter-spacing:1px; color:var(--sand-500); padding:14px 10px 6px;}
+.nav-item{
+  display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:8px; font-size:13.5px;
+  color:var(--sand-300); cursor:pointer; margin-bottom:2px; border:none; background:none; width:100%; text-align:left;
+  font-family:inherit;
+}
+.nav-item .ic{font-size:15px; width:18px; text-align:center;}
+.nav-badge{margin-left:auto; background:var(--risk-high); color:#fff; font-size:9.5px; font-weight:700; padding:1px 6px; border-radius:8px;}
+.nav-item:hover{background:var(--earth-800); color:var(--sand-100);}
+.nav-item.active{background:linear-gradient(90deg, rgba(201,162,39,.18), rgba(201,162,39,.03)); color:var(--gold-300); font-weight:600; box-shadow:inset 3px 0 0 var(--gold-500);}
+.sidebar-foot{margin-top:auto; padding:14px 20px 4px; border-top:1px solid var(--earth-700); font-size:11px; color:var(--sand-500); line-height:1.6;}
+
+#contentWrap{flex:1; display:flex; flex-direction:column; min-width:0;}
+#topbar{
+  height:60px; flex-shrink:0; display:flex; align-items:center; gap:14px; padding:0 22px;
+  border-bottom:1px solid var(--earth-700); background:var(--earth-900);
+}
+#topbar h2{font-family:var(--font-display); font-size:18px; font-weight:600;}
+.search-wrap{flex:1; max-width:420px; position:relative; margin-left:10px;}
+.search-wrap input{
+  width:100%; padding:8px 12px 8px 34px; background:var(--earth-800); border:1px solid var(--earth-700);
+  border-radius:20px; color:var(--sand-100); font-size:13px;
+}
+.search-wrap input:focus{outline:none; border-color:var(--gold-500);}
+.search-wrap .sic{position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:13px; color:var(--sand-500);}
+.sync-pill{display:flex; align-items:center; gap:7px; padding:6px 12px; border-radius:20px; background:var(--earth-800); border:1px solid var(--earth-700); font-size:11px; color:var(--sand-300); white-space:nowrap;}
+.sync-pill .live-dot{width:6px; height:6px;}
+.sync-pill span.t{font-family:var(--font-mono); color:var(--sand-100);}
+.top-actions{display:flex; align-items:center; gap:8px; margin-left:auto;}
+.icon-btn{
+  width:36px; height:36px; border-radius:8px; border:1px solid var(--earth-700); background:var(--earth-800);
+  display:flex; align-items:center; justify-content:center; font-size:15px; color:var(--sand-300); transition:.15s;
+}
+.icon-btn:hover{border-color:var(--gold-500); color:var(--gold-300); transform:translateY(-1px);}
+.user-chip{display:flex; align-items:center; gap:8px; padding:5px 10px 5px 5px; background:var(--earth-800); border:1px solid var(--earth-700); border-radius:20px; font-size:12.5px; transition:border-color .15s;}
+.user-chip:hover{border-color:var(--gold-500);}
+.user-chip .av{width:26px; height:26px; border-radius:50%; background:var(--gold-500); color:#1a1406; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:11px;}
+#sidebarToggle{display:none;}
+
+#viewport{flex:1; overflow-y:auto; padding:22px;}
+.view{display:none;}
+.view.active{display:block; animation:viewFade .25s ease;}
+@keyframes viewFade{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);}}
+
+/* ---------- DASHBOARD ---------- */
+.stat-grid{display:grid; grid-template-columns:repeat(6,1fr); gap:14px; margin-bottom:20px;}
+@media (max-width:1400px){.stat-grid{grid-template-columns:repeat(3,1fr);}}
+@media (max-width:640px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
+.stat-card{
+  background:var(--earth-900); border:1px solid var(--earth-700); border-top:2.5px solid var(--earth-700);
+  border-radius:var(--radius); padding:16px; position:relative; overflow:hidden;
+  transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.stat-card:hover{transform:translateY(-3px); box-shadow:0 10px 26px rgba(0,0,0,.28), 0 0 0 1px rgba(201,162,39,.18);}
+.stat-card .ic{position:absolute; top:12px; right:14px; font-size:16px; opacity:.55;}
+.stat-card .lbl{font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--sand-500); margin-bottom:8px; max-width:82%;}
+.stat-card .val{font-family:var(--font-display); font-size:27px; font-weight:600; line-height:1;}
+.stat-card .sub{font-size:11.5px; margin-top:6px; color:var(--sand-500);}
+.stat-card.warn{border-top-color:var(--risk-medium);}
+.stat-card.danger{border-top-color:var(--risk-high);}
+.stat-card.good{border-top-color:var(--risk-normal);}
+.stat-card.gold{border-top-color:var(--gold-500);}
+.stat-card.warn .val{color:var(--risk-medium);}
+.stat-card.danger .val{color:var(--risk-high);}
+.stat-card.good .val{color:var(--risk-normal);}
+.stat-card.gold .val{color:var(--gold-500);}
+
+.dash-grid{display:grid; grid-template-columns:1.3fr 1fr; gap:16px;}
+@media (max-width:1200px){.dash-grid{grid-template-columns:1fr;}}
+.panel{background:var(--earth-900); border:1px solid var(--earth-700); border-radius:var(--radius); padding:18px;}
+.panel h3{font-family:var(--font-display); font-size:15px; font-weight:600; margin-bottom:14px; display:flex; align-items:center; justify-content:space-between;}
+.panel h3 small{font-size:11px; color:var(--sand-500); font-weight:400; font-family:var(--font-body);}
+.chart-box{height:230px; position:relative;}
+.alert-row{display:flex; gap:10px; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--earth-700); font-size:12.5px;}
+.alert-row:last-child{border-bottom:none;}
+.dot{width:9px; height:9px; border-radius:50%; margin-top:4px; flex-shrink:0;}
+.alert-row b{font-weight:600;}
+.alert-row .meta{color:var(--sand-500); font-size:11px; margin-top:2px;}
+
+/* ---------- MAP VIEW ---------- */
+#carteView{padding:0; height:100%; display:flex; flex-direction:column;}
+.map-toolbar{
+  display:flex; align-items:center; gap:10px; padding:12px 18px; border-bottom:1px solid var(--earth-700);
+  background:var(--earth-900); flex-wrap:wrap;
+}
+.chip-toggle{
+  display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:16px; border:1px solid var(--earth-700);
+  background:var(--earth-800); font-size:12px; color:var(--sand-300); user-select:none;
+}
+.chip-toggle input{accent-color:var(--gold-500);}
+.chip-toggle:has(input:checked){border-color:var(--gold-500); color:var(--sand-100);}
+.map-area{flex:1; position:relative; overflow:hidden;}
+#map{position:absolute; inset:0;}
+/* Signature element: a satellite pass sweeping across the map, echoing the "analyse d'images satellitaires" brief */
+.map-sweep{
+  position:absolute; top:0; bottom:0; width:140px; z-index:450; pointer-events:none;
+  background:linear-gradient(90deg, transparent, rgba(201,162,39,.16) 45%, rgba(201,162,39,.28) 50%, rgba(201,162,39,.16) 55%, transparent);
+  animation:sweepAcross 9s ease-in-out infinite;
+}
+@keyframes sweepAcross{ 0%{left:-160px;} 45%{left:100%;} 100%{left:100%;} }
+.legend-box{
+  position:absolute; bottom:18px; left:18px; z-index:500; background:rgba(20,36,26,.92); border:1px solid var(--earth-700);
+  border-radius:10px; padding:12px 14px; font-size:11.5px; backdrop-filter:blur(4px); box-shadow:var(--shadow);
+}
+[data-theme="light"] .legend-box{background:rgba(255,255,255,.92);}
+.legend-box .lt{font-weight:700; margin-bottom:8px; text-transform:uppercase; letter-spacing:.5px; font-size:10.5px; color:var(--sand-500);}
+.legend-item{display:flex; align-items:center; gap:8px; margin-bottom:5px;}
+.legend-sw{width:12px; height:12px; border-radius:3px; flex-shrink:0;}
+.coord-box{
+  position:absolute; top:14px; right:14px; z-index:500; background:rgba(20,36,26,.88); border:1px solid var(--earth-700);
+  border-radius:8px; padding:7px 12px; font-size:10.5px; font-family:var(--font-mono); color:var(--sand-300);
+}
+[data-theme="light"] .coord-box{background:rgba(255,255,255,.9);}
+
+/* ---------- DETAIL DRAWER ---------- */
+#drawerBackdrop{
+  position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1900; opacity:0; pointer-events:none; transition:opacity .25s ease;
+}
+#drawerBackdrop.open{opacity:1; pointer-events:auto;}
+#drawer{
+  position:fixed; top:0; right:-460px; width:440px; max-width:92vw; height:100vh; background:var(--earth-900);
+  border-left:1px solid var(--earth-700); z-index:2000; transition:right .28s cubic-bezier(.2,.8,.2,1); overflow-y:auto; box-shadow:-10px 0 30px rgba(0,0,0,.4);
+}
+#drawer.open{right:0;}
+.drawer-head{padding:20px; border-bottom:1px solid var(--earth-700); display:flex; align-items:flex-start; justify-content:space-between; position:sticky; top:0; background:var(--earth-900); z-index:2;}
+.drawer-head h3{font-family:var(--font-display); font-size:18px; margin-bottom:4px;}
+.drawer-head .tag{font-size:11px; color:var(--sand-500);}
+.drawer-close{background:none; border:none; color:var(--sand-300); font-size:20px; width:32px; height:32px; border-radius:8px; transition:.15s;}
+.drawer-close:hover{background:var(--earth-800); color:var(--sand-100);}
+.drawer-body{padding:18px 20px;}
+.risk-badge{display:inline-flex; align-items:center; gap:7px; padding:5px 12px; border-radius:16px; font-size:12px; font-weight:700; margin-bottom:16px;}
+.gauge-wrap{display:flex; align-items:center; gap:16px; margin-bottom:18px;}
+.gauge{width:82px; height:82px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative; flex-shrink:0; box-shadow:0 0 0 5px var(--earth-800);}
+.gauge::before{content:''; position:absolute; inset:8px; border-radius:50%; background:var(--earth-900);}
+.gauge span{font-family:var(--font-mono); font-size:15px; font-weight:700; position:relative; z-index:1;}
+.info-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; margin-bottom:18px;}
+.info-item .k{font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--sand-500); margin-bottom:3px;}
+.info-item .v{font-size:13px; font-weight:500;}
+.info-item .v.mono{font-family:var(--font-mono); font-size:12px;}
+.compare-imgs{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;}
+.compare-imgs .im{aspect-ratio:4/3; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:4px; font-size:11px; color:rgba(255,255,255,.85); text-align:center; padding:8px;}
+.reco-box{background:var(--earth-800); border:1px solid var(--earth-700); border-radius:10px; padding:14px; margin-bottom:14px;}
+.reco-box h4{font-size:12.5px; margin-bottom:10px; color:var(--gold-300); display:flex; gap:6px; align-items:center;}
+.reco-line{display:flex; justify-content:space-between; font-size:12px; padding:5px 0; border-bottom:1px dashed var(--earth-700);}
+.reco-line:last-child{border-bottom:none;}
+.reco-line .k{color:var(--sand-300);}
+.reco-line .v{font-weight:600;}
+.drawer-actions{display:flex; gap:8px; margin-top:6px;}
+.btn-sm{flex:1; padding:9px; border-radius:8px; font-size:12px; font-weight:600; border:1px solid var(--earth-700); background:var(--earth-800); color:var(--sand-100); transition:.15s;}
+.btn-sm:hover{border-color:var(--gold-500);}
+.btn-sm.gold{background:var(--gold-500); color:#1a1406; border:none;}
+.btn-sm.gold:hover{background:var(--gold-300);}
+
+/* ---------- TABLE VIEWS ---------- */
+.filter-row{display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;}
+.filter-row select, .filter-row input{
+  padding:8px 12px; background:var(--earth-800); border:1px solid var(--earth-700); border-radius:8px; color:var(--sand-100); font-size:12.5px;
+}
+table{width:100%; border-collapse:collapse; font-size:12.5px;}
+th{text-align:left; padding:11px 12px; color:var(--sand-500); font-weight:600; text-transform:uppercase; font-size:10.5px; letter-spacing:.4px; border-bottom:1px solid var(--earth-700);}
+td{padding:11px 12px; border-bottom:1px solid var(--earth-700);}
+tr.rowlink{cursor:pointer;}
+tr.rowlink:hover{background:var(--earth-800);}
+.pill{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:12px; font-size:11px; font-weight:700;}
+
+/* forest cards */
+.forest-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:14px;}
+.forest-card{background:var(--earth-900); border:1px solid var(--earth-700); border-radius:var(--radius); overflow:hidden; cursor:pointer; transition:transform .15s, border-color .15s;}
+.forest-card:hover{transform:translateY(-2px); border-color:var(--gold-500);}
+.forest-top{height:80px; display:flex; align-items:center; justify-content:center; font-size:30px;}
+.forest-body{padding:14px;}
+.forest-body h4{font-size:14px; margin-bottom:4px;}
+.forest-body .loc{font-size:11px; color:var(--sand-500); margin-bottom:10px;}
+.forest-stats{display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:11px;}
+.forest-stats div span{display:block; color:var(--sand-500); font-size:10px;}
+
+.admin-toolbar{display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;}
+.badge-role{padding:2px 9px; border-radius:10px; font-size:10.5px; background:var(--earth-800); border:1px solid var(--earth-700);}
+
+/* ---------- TOASTS (remplace alert() bloqué en sandbox) ---------- */
+#toastBox{position:fixed; bottom:18px; right:18px; z-index:9000; display:flex; flex-direction:column; gap:8px; align-items:flex-end;}
+.toast{background:var(--earth-900); border:1px solid var(--earth-700); border-left:3px solid var(--gold-500); color:var(--sand-100); padding:11px 16px; border-radius:8px; font-size:12.5px; box-shadow:var(--shadow); max-width:300px; animation:toastIn .25s ease;}
+.toast.err{border-left-color:var(--risk-high);}
+@keyframes toastIn{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+
+/* ---------- MINI MODAL (remplace prompt() bloqué en sandbox) ---------- */
+#miniModalBackdrop{display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:8500;}
+#miniModalBackdrop.open{display:block;}
+#miniModal{display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:8600; width:min(360px,90vw); background:var(--earth-900); border:1px solid var(--earth-700); border-radius:var(--radius); padding:20px; box-shadow:var(--shadow);}
+#miniModal.open{display:block;}
+#miniModal h4{font-family:var(--font-display); font-size:15px; margin-bottom:12px;}
+#miniModal input{width:100%; padding:9px 10px; background:var(--earth-800); border:1px solid var(--earth-700); border-radius:8px; color:var(--sand-100); font-size:13px; margin-bottom:14px;}
+#miniModal .btn-row{justify-content:flex-end;}
+
+/* ---------- AGENT TRACKING VIEW ---------- */
+.agent-grid{display:grid; grid-template-columns:340px 1fr; gap:16px; align-items:start;}
+@media (max-width:900px){ .agent-grid{grid-template-columns:1fr;} }
+.consent-box{border:1px dashed var(--earth-700); border-radius:var(--radius); padding:14px; font-size:12px; color:var(--sand-300); line-height:1.6; margin-bottom:14px; background:var(--earth-800);}
+.consent-box b{color:var(--sand-100);}
+.gps-status{display:flex; align-items:center; gap:10px; margin-bottom:12px;}
+.gps-status .dot{width:9px; height:9px; border-radius:50%; background:var(--sand-500);}
+.gps-status .dot.on{background:var(--risk-normal); box-shadow:0 0 0 0 rgba(76,154,87,.6); animation:pulseDot 2.2s ease-in-out infinite;}
+.gps-status .dot.err{background:var(--risk-high);}
+.gps-coords{font-family:var(--font-mono); font-size:13px; color:var(--gold-300); margin:8px 0;}
+.agent-select{width:100%; padding:9px 10px; background:var(--earth-800); border:1px solid var(--earth-700); border-radius:8px; color:var(--sand-100); font-size:13px; margin-bottom:10px;}
+.btn-row{display:flex; gap:8px; flex-wrap:wrap;}
+.timeline{margin-top:6px;}
+.tl-row{display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--earth-700); font-size:12px;}
+.tl-row:last-child{border-bottom:none;}
+.tl-dot{width:8px; height:8px; border-radius:50%; background:var(--gold-500); margin-top:4px; flex-shrink:0;}
+.tl-body .k{color:var(--sand-100); font-weight:600;}
+.tl-body .m{color:var(--sand-500); font-size:11px; margin-top:2px;}
+.mission-alert{display:flex; gap:10px; align-items:center; background:rgba(196,64,47,.12); border:1px solid var(--risk-high); color:var(--risk-high); border-radius:8px; padding:10px 12px; font-size:12px; margin-bottom:12px;}
+
+/* ---------- SOURCES VIEW ---------- */
+.source-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px;}
+.source-card{background:var(--earth-900); border:1px solid var(--earth-700); border-radius:var(--radius); padding:14px;}
+.source-card .stitle{font-weight:600; font-size:13.5px; margin-bottom:4px; display:flex; align-items:center; gap:8px;}
+.source-card .sdesc{font-size:11.5px; color:var(--sand-500); line-height:1.5; margin-bottom:8px;}
+
+/* ---- Régions & suivi temps réel ---- */
+.region-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:14px;}
+.region-card{background:var(--earth-900); border:1px solid var(--earth-700); border-radius:var(--radius); padding:16px; transition:border-color .15s, transform .15s;}
+.region-card:hover{border-color:var(--gold-500);}
+.region-card .rtitle{font-family:var(--font-display); font-size:17px; font-weight:600; display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;}
+.region-card .rcoord{font-family:var(--font-mono); font-size:11px; color:var(--gold-300); margin-bottom:10px;}
+.region-card .rstats{display:flex; gap:14px; margin-bottom:12px; font-size:11.5px; color:var(--sand-300);}
+.region-card .rstats b{display:block; font-size:15px; color:var(--sand-100); font-family:var(--font-display);}
+.region-card .rsub{font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--sand-500); margin:10px 0 6px;}
+.region-card .rlist{font-size:11.5px; color:var(--sand-300); line-height:1.7;}
+.region-card .rforet-row{display:flex; justify-content:space-between; align-items:center; padding:5px 0; border-bottom:1px dashed var(--earth-700); font-size:11.5px; cursor:pointer;}
+.region-card .rforet-row:hover{color:var(--gold-300);}
+.region-card .rforet-row:last-child{border-bottom:none;}
+.region-card .rforet-row .coord{font-family:var(--font-mono); font-size:10px; color:var(--sand-500);}
+.live-badge{display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:600; color:var(--gold-300); text-transform:uppercase; letter-spacing:.4px;}
+.live-badge .dot{width:6px; height:6px; border-radius:50%; background:#4C9A57; box-shadow:0 0 0 0 rgba(76,154,87,.6); animation:pulseLive 1.8s infinite;}
+@keyframes pulseLive{0%{box-shadow:0 0 0 0 rgba(76,154,87,.55);} 70%{box-shadow:0 0 0 7px rgba(76,154,87,0);} 100%{box-shadow:0 0 0 0 rgba(76,154,87,0);}}
+.sat-toggle{display:flex; border:1px solid var(--earth-700); border-radius:8px; overflow:hidden;}
+.sat-toggle button{padding:6px 12px; font-size:11.5px; background:var(--earth-800); color:var(--sand-300); border:none;}
+.sat-toggle button.active{background:var(--gold-500); color:#14241A; font-weight:600;}
+.amend-calc{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0 4px;}
+.amend-calc .ac-box{background:var(--earth-900); border:1px solid var(--earth-700); border-radius:8px; padding:8px 10px;}
+.amend-calc .ac-box .k{font-size:10px; text-transform:uppercase; color:var(--sand-500); letter-spacing:.3px;}
+.amend-calc .ac-box .v{font-family:var(--font-display); font-size:16px; color:var(--gold-300); font-weight:600;}
+.source-status{display:inline-flex; align-items:center; gap:5px; font-size:10.5px; padding:2px 8px; border-radius:8px; font-weight:600;}
+.source-status.live{background:rgba(76,154,87,.15); color:var(--risk-normal);}
+.source-status.planned{background:rgba(224,198,76,.15); color:var(--risk-watch);}
+.source-status.auth{background:rgba(224,137,60,.15); color:var(--risk-medium);}
+
+.view.active{animation:viewFade .25s ease;}
+@keyframes viewFade{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);} }
+
+@media (max-width:880px){
+  #sidebar{
+    position:fixed; top:0; left:0; height:100vh; z-index:2100; transform:translateX(-100%);
+    box-shadow:12px 0 30px rgba(0,0,0,.4);
+  }
+  #sidebar.open{transform:translateX(0);}
+  #sidebarBackdrop{
+    display:block; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:2050;
+    opacity:0; pointer-events:none; transition:opacity .2s;
+  }
+  #sidebarBackdrop.open{opacity:1; pointer-events:auto;}
+  #sidebarToggle{
+    display:flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:8px;
+    border:1px solid var(--earth-700); background:var(--earth-800); color:var(--sand-300); font-size:16px;
+  }
+  .search-wrap{display:none;}
+  .stat-grid{grid-template-columns:repeat(2,1fr);}
+}
+
+@media print{
+  #sidebar, #topbar, .map-toolbar, .drawer-actions, .drawer-close, #scanStrip, .map-sweep, #drawerBackdrop{display:none !important;}
+  body{overflow:visible;}
+}
+</style>
+</head>
+<body data-theme="dark">
+<div id="scanStrip"></div>
+<div id="glowLayer"></div>
+<div id="sidebarBackdrop"></div>
+
+<!-- ============================ APP SHELL ============================ -->
+<div id="mainApp">
+
+  <aside id="sidebar">
+    <div class="side-brand"><span class="sat">🛰️</span><b>Salin<span>Connect</span></b></div>
+    <div class="live-pill"><span class="live-dot"></span>Analyse IA active</div>
+    <div class="nav-group">
+      <div class="nav-label">Vue d'ensemble</div>
+      <button class="nav-item view-trigger active" data-view="dashboard"><span class="ic">📊</span>Tableau de bord</button>
+      <button class="nav-item view-trigger" data-view="carte"><span class="ic">🗺️</span>Carte interactive</button>
+      <div class="nav-label">Diagnostic</div>
+      <button class="nav-item view-trigger" data-view="champs"><span class="ic">🌾</span>Champs agricoles</button>
+      <button class="nav-item view-trigger" data-view="forets"><span class="ic">🌳</span>Forêts</button>
+      <button class="nav-item view-trigger" data-view="regions"><span class="ic">🧭</span>Régions</button>
+      <button class="nav-item view-trigger" data-view="stats"><span class="ic">📈</span>Statistiques</button>
+      <div class="nav-label">Terrain</div>
+      <button class="nav-item view-trigger" data-view="agents"><span class="ic">📍</span>Suivi agents<span id="agentNavBadge" class="nav-badge hidden">1</span></button>
+      <div class="nav-label">Système</div>
+      <button class="nav-item view-trigger" data-view="admin"><span class="ic">⚙️</span>Administration</button>
+      <button class="nav-item view-trigger" data-view="sources"><span class="ic">🗂️</span>Sources &amp; couverture</button>
+    </div>
+    <div class="sidebar-foot">Zone Centre — Sénégal<br>IA v0.1 (données simulées)<br>Prête pour intégration satellite réelle</div>
+  </aside>
+
+  <div id="contentWrap">
+    <div id="topbar">
+      <button id="sidebarToggle" title="Menu">☰</button>
+      <h2 id="viewTitle">Tableau de bord</h2>
+      <div class="search-wrap"><span class="sic">🔍</span><input id="globalSearch" placeholder="Rechercher un champ, un village, une forêt…"></div>
+      <div class="top-actions">
+        <div class="sync-pill"><span class="live-dot"></span>Sync <span class="t" id="syncClock">—</span></div>
+        <button class="icon-btn" id="exportCsv" title="Exporter Excel (CSV)">⭳</button>
+        <button class="icon-btn" id="exportPdf" title="Exporter / Imprimer PDF">🖨️</button>
+        <button class="icon-btn" id="themeToggle" title="Mode sombre / clair">🌗</button>
+        <div class="user-chip"><span class="av" id="avInit">A</span><span id="userName">Administrateur</span></div>
+      </div>
+    </div>
+
+    <!-- Barre de rubriques toujours visible — toutes les sections en un coup d'œil -->
+    <div id="rubriqueStrip">
+      <button class="rubrique-chip view-trigger active" data-view="dashboard"><span class="ic">📊</span>Tableau de bord</button>
+      <button class="rubrique-chip view-trigger" data-view="carte"><span class="ic">🗺️</span>Carte</button>
+      <button class="rubrique-chip view-trigger" data-view="champs"><span class="ic">🌾</span>Champs</button>
+      <button class="rubrique-chip view-trigger" data-view="forets"><span class="ic">🌳</span>Forêts</button>
+      <button class="rubrique-chip view-trigger" data-view="regions"><span class="ic">🧭</span>Régions</button>
+      <button class="rubrique-chip view-trigger" data-view="stats"><span class="ic">📈</span>Statistiques</button>
+      <button class="rubrique-chip view-trigger" data-view="agents"><span class="ic">📍</span>Agents<span id="agentNavBadge2" class="nav-badge hidden">1</span></button>
+      <button class="rubrique-chip view-trigger" data-view="admin"><span class="ic">⚙️</span>Admin</button>
+      <button class="rubrique-chip view-trigger" data-view="sources"><span class="ic">🗂️</span>Sources</button>
+    </div>
+
+    <div id="viewport">
+
+      <!-- ---------------- DASHBOARD ---------------- -->
+      <div class="view active" id="view-dashboard">
+        <div class="stat-grid" id="statGrid"></div>
+        <div class="dash-grid">
+          <div class="panel">
+            <h3>Salinité par région <small>taux moyen (%)</small></h3>
+            <div class="chart-box"><canvas id="chartRegion"></canvas></div>
+          </div>
+          <div class="panel">
+            <h3>Alertes récentes <small id="alertCount"></small></h3>
+            <div id="alertList"></div>
+          </div>
+        </div>
+        <div class="dash-grid" style="margin-top:16px;">
+          <div class="panel">
+            <h3>Évolution mensuelle de la salinité <small>moyenne Zone Centre</small></h3>
+            <div class="chart-box"><canvas id="chartEvo"></canvas></div>
+          </div>
+          <div class="panel">
+            <h3>Répartition du risque <small id="fieldCountLbl"></small></h3>
+            <div class="chart-box"><canvas id="chartRisk"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------------- CARTE ---------------- -->
+      <div class="view" id="view-carte" style="height:calc(100vh - 100px);">
+        <div id="carteView">
+          <div class="map-toolbar">
+            <label class="chip-toggle"><input type="checkbox" id="lyChamps" checked>🌾 Champs</label>
+            <label class="chip-toggle"><input type="checkbox" id="lyForets" checked>🌳 Forêts</label>
+            <label class="chip-toggle"><input type="checkbox" id="lyVillages" checked>🏘️ Villages</label>
+            <label class="chip-toggle"><input type="checkbox" id="lyImpact" checked>🛰️ Zones impactées</label>
+            <select id="regionFilter" style="padding:6px 10px;background:var(--earth-800);border:1px solid var(--earth-700);border-radius:8px;color:var(--sand-100);font-size:12px;">
+              <option value="all">Toutes les régions</option>
+            </select>
+            <div class="sat-toggle">
+              <button id="baseLayerPlan" class="active" type="button">🗺️ Plan</button>
+              <button id="baseLayerSat" type="button">🛰️ Satellite HD</button>
+            </div>
+            <span style="margin-left:auto;font-size:11.5px;color:var(--sand-500);">Clic sur une parcelle ou une forêt pour le rapport complet</span>
+          </div>
+          <div class="map-area">
+            <div id="map"></div>
+            <div class="map-sweep"></div>
+            <div class="coord-box" id="mapCoordBox">14.35°N, 15.95°O · zoom 8</div>
+            <div class="live-badge" style="position:absolute; top:12px; left:12px; z-index:500; background:rgba(15,27,20,.75); padding:6px 10px; border-radius:8px; backdrop-filter:blur(3px);"><span class="dot"></span>Dernière détection · <span id="mapLiveClock">—</span></div>
+            <div class="legend-box">
+              <div class="lt">Niveau de salinité</div>
+              <div class="legend-item"><span class="legend-sw" style="background:var(--risk-normal)"></span>Normale (0–10%)</div>
+              <div class="legend-item"><span class="legend-sw" style="background:var(--risk-watch)"></span>Risque (10–25%)</div>
+              <div class="legend-item"><span class="legend-sw" style="background:var(--risk-medium)"></span>Moyenne (25–45%)</div>
+              <div class="legend-item"><span class="legend-sw" style="background:var(--risk-high)"></span>Forte (45–65%)</div>
+              <div class="legend-item"><span class="legend-sw" style="background:var(--risk-severe)"></span>Très forte (65%+)</div>
+              <div class="lt" style="margin-top:8px;">🛰️ Zones impactées (halo)</div>
+              <div class="legend-item" style="font-size:10.5px;color:var(--sand-500);">Rayon proportionnel à la part de champs affectés par région, détecté par imagerie satellite</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------------- CHAMPS ---------------- -->
+      <div class="view" id="view-champs">
+        <div class="filter-row">
+          <input id="champSearch" placeholder="Rechercher un champ, propriétaire, village…" style="min-width:220px;">
+          <select id="champRegionF"><option value="all">Toutes les régions</option></select>
+          <select id="champRiskF">
+            <option value="all">Tous les niveaux</option>
+            <option value="normal">Normale</option><option value="watch">Risque</option>
+            <option value="medium">Moyenne</option><option value="high">Forte</option><option value="severe">Très forte</option>
+          </select>
+        </div>
+        <div class="panel" style="padding:0;overflow-x:auto;">
+          <table id="champsTable">
+            <thead><tr><th>Champ</th><th>Propriétaire</th><th>Village / Commune</th><th>Région</th><th>Coordonnées GPS</th><th>Superficie</th><th>Culture</th><th>Salinité</th><th>Statut</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ---------------- FORETS ---------------- -->
+      <div class="view" id="view-forets">
+        <div class="filter-row" style="justify-content:space-between;">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <input id="foretSearch" placeholder="Rechercher une forêt…" style="min-width:220px;">
+            <select id="foretRegionF"><option value="all">Toutes les régions</option></select>
+          </div>
+          <div class="live-badge"><span class="dot"></span>Suivi temps réel · <span id="foretLiveClock">—</span></div>
+        </div>
+        <div class="forest-grid" id="forestGrid"></div>
+      </div>
+
+      <!-- ---------------- REGIONS (ZONE CENTRE) ---------------- -->
+      <div class="view" id="view-regions">
+        <div class="filter-row" style="justify-content:space-between;">
+          <div style="font-size:12.5px;color:var(--sand-500);">4 régions de la Zone Centre · <span id="regionsSummary"></span></div>
+          <div class="live-badge"><span class="dot"></span>Détection satellite · <span id="regionsLiveClock">—</span></div>
+        </div>
+        <div class="region-grid" id="regionGrid"></div>
+      </div>
+
+      <!-- ---------------- STATS ---------------- -->
+      <div class="view" id="view-stats">
+        <div class="dash-grid">
+          <div class="panel"><h3>Évolution annuelle par région <small>taux moyen de salinité</small></h3><div class="chart-box"><canvas id="chartAnnual"></canvas></div></div>
+          <div class="panel"><h3>Superficie affectée par région <small>hectares</small></h3><div class="chart-box"><canvas id="chartSurface"></canvas></div></div>
+        </div>
+        <div class="dash-grid" style="margin-top:16px;">
+          <div class="panel"><h3>Types de culture concernés</h3><div class="chart-box"><canvas id="chartCultures"></canvas></div></div>
+          <div class="panel"><h3>État des forêts</h3><div class="chart-box"><canvas id="chartForets"></canvas></div></div>
+        </div>
+      </div>
+
+      <!-- ---------------- AGENTS TERRAIN ---------------- -->
+      <div class="view" id="view-agents">
+        <div class="consent-box">
+          <b>Consentement de localisation</b> — la position d'un agent n'est partagée que s'il active lui-même le suivi sur son appareil et peut le désactiver à tout moment. Cette démo utilise la géolocalisation du navigateur (un seul appareil, cette session). Un déploiement multi-agents en temps réel nécessite un backend (voir « Sources &amp; couverture »).
+        </div>
+        <div id="missionAlertBox"></div>
+        <div class="agent-grid">
+          <div class="panel">
+            <h3 style="margin-bottom:10px;">Ma position</h3>
+            <select class="agent-select" id="agentSelect"></select>
+            <div class="gps-status"><span class="dot" id="gpsDot"></span><span id="gpsStatusText">Localisation désactivée</span></div>
+            <div class="gps-coords" id="gpsCoords">—</div>
+            <div class="btn-row">
+              <button class="btn-primary" style="width:auto;padding:9px 14px;" id="gpsToggle">📍 Activer ma position</button>
+              <button class="btn-sm" id="checkpointBtn" disabled>✅ Enregistrer un point de contrôle</button>
+            </div>
+            <p style="font-size:11px;color:var(--sand-500);margin-top:10px;line-height:1.5;">Un point de contrôle associe l'horodatage et la position GPS actuelle au champ ou à la forêt le plus proche.</p>
+          </div>
+          <div class="panel">
+            <h3 style="margin-bottom:6px;">Historique des déplacements <small id="checkpointCount" style="font-weight:400;color:var(--sand-500);"></small></h3>
+            <div class="timeline" id="agentTimeline"><p style="font-size:12px;color:var(--sand-500);">Aucun point de contrôle enregistré pour cette session.</p></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------------- SOURCES & COUVERTURE ---------------- -->
+      <div class="view" id="view-sources">
+        <div class="panel" style="margin-bottom:16px;">
+          <h3 style="font-family:var(--font-display);font-size:16px;margin-bottom:8px;">Couverture territoriale actuelle</h3>
+          <p style="font-size:12.5px;color:var(--sand-300);line-height:1.6;">
+            SalinConnect AI couvre aujourd'hui les 4 régions de la Zone Centre (Kaolack, Fatick, Kaffrine, Diourbel) avec une hiérarchie région → département → commune réelle. Les villages, champs, superficies exactes et taux de salinité affichés dans cette démo sont <b>générés (données simulées, graine fixe)</b> et ne proviennent pas encore d'un flux officiel — ils illustrent la structure attendue une fois les sources ci-dessous branchées.
+          </p>
+        </div>
+        <div class="source-grid" id="sourceGrid"></div>
+        <div class="panel" style="margin-top:16px;">
+          <h3 style="font-size:14px;margin-bottom:8px;">Point d'intégration technique</h3>
+          <p style="font-size:11.5px;color:var(--sand-500);line-height:1.7;">
+            Le fond de carte OpenStreetMap est déjà en direct. Pour brancher une source officielle : renseigner sa clé/URL dans <span class="mono" style="background:var(--earth-800);padding:1px 6px;border-radius:4px;">CONFIG.dataSources</span> en haut du script, puis remplacer les tableaux <span class="mono" style="background:var(--earth-800);padding:1px 6px;border-radius:4px;">FIELDS</span> / <span class="mono" style="background:var(--earth-800);padding:1px 6px;border-radius:4px;">FORESTS</span> par le résultat d'un appel <span class="mono" style="background:var(--earth-800);padding:1px 6px;border-radius:4px;">fetch()</span>. Le suivi multi-agents temps réel nécessite un serveur (WebSocket/Socket.io) recevant la position de chaque appareil et la redistribuant aux autres clients connectés.
+          </p>
+        </div>
+      </div>
+
+      <!-- ---------------- ADMIN ---------------- -->
+      <div class="view" id="view-admin">
+        <div class="admin-toolbar">
+          <h3 style="font-family:var(--font-display);font-size:16px;">Gestion des utilisateurs</h3>
+          <button class="btn-primary" style="width:auto;padding:9px 16px;" id="addUserBtn">+ Ajouter un utilisateur</button>
+        </div>
+        <div class="panel" style="padding:0;overflow-x:auto;">
+          <table id="usersTable">
+            <thead><tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th>Région assignée</th><th>Statut</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p style="font-size:11.5px;color:var(--sand-500);margin-top:14px;">Module d'administration en démonstration — gestion des rôles, permissions et journaux d'activité à connecter à un backend d'authentification (Firebase Auth, Auth0…) pour un déploiement en production.</p>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================ TOASTS & MINI MODAL ============================ -->
+<div id="toastBox"></div>
+<div id="miniModalBackdrop"></div>
+<div id="miniModal">
+  <h4 id="miniModalTitle">—</h4>
+  <input id="miniModalInput" placeholder="">
+  <div class="btn-row">
+    <button class="btn-sm" id="miniModalCancel">Annuler</button>
+    <button class="btn-primary" style="width:auto;padding:8px 14px;" id="miniModalOk">Confirmer</button>
+  </div>
+</div>
+
+<!-- ============================ DETAIL DRAWER ============================ -->
+<div id="drawerBackdrop"></div>
+<div id="drawer">
+  <div class="drawer-head">
+    <div><h3 id="drTitle">—</h3><div class="tag" id="drTag">—</div></div>
+    <button class="drawer-close" id="drawerClose">✕</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+</div>
+
+<script>
+/* ======================================================================
+   SALINCONNECT AI — moteur de données de démonstration
+   -----------------------------------------------------------------------
+   Toutes les données (régions, communes, villages, champs, forêts,
+   taux de salinité, images) sont générées ici de façon déterministe
+   (PRNG à graine fixe) afin de simuler un jeu de données réaliste pour
+   la Zone Centre du Sénégal.
+
+   POINT D'INTÉGRATION FUTUR :
+   - Remplacer generateFields()/generateForests() par un appel à une API
+     réelle exposant des polygones de parcelles + un service d'analyse
+     d'images satellitaires (ex. Sentinel-2 / indices NDVI, NDSI).
+   - Remplacer computeSalinity() par la sortie d'un modèle IA entraîné
+     (classification pixel ou parcelle) au lieu du bruit pseudo-aléatoire.
+   - Brancher exportCsv()/exportPdf() sur un générateur de rapport côté
+     serveur si des mises en page plus riches sont nécessaires.
+====================================================================== */
+
+// ---- PRNG déterministe (Mulberry32) pour une démo reproductible ----
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const rng = mulberry32(20260729);
+const pick = (arr) => arr[Math.floor(rng()*arr.length)];
+const rand = (min,max) => min + rng()*(max-min);
+
+// ---- Points d'intégration API réelle (à renseigner) ----
+// Aucune clé n'est appelée par cette démo : les URLs/placeholders ci-dessous
+// documentent où brancher chaque source une fois les accès obtenus.
+const CONFIG = {
+  dataSources: {
+    osmTiles: {status:'live', url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', desc:'Fond de carte plan — en direct.'},
+    esriSat: {status:'live', url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer', desc:'Imagerie satellite haute résolution — en direct sur cette démo (bascule Plan/Satellite).'},
+    ansd: {status:'planned', url:'https://www.ansd.sn/ (portail open data — à confirmer selon accès)', desc:'Recensement, population par localité'},
+    anat: {status:'planned', url:'ANAT — limites administratives officielles', desc:'Limites région/département/commune'},
+    gadm: {status:'planned', url:'https://gadm.org/download_country.html', desc:'Polygones administratifs (fichiers à télécharger et héberger)'},
+    dgid: {status:'planned', url:'DGID — cadastre/foncier', desc:'Parcelles et propriété foncière'},
+    copernicus: {status:'auth', url:'https://dataspace.copernicus.eu/ (nécessite un compte + clé API)', desc:'Imagerie Sentinel-2, indices NDVI/NDSI'},
+    sentinel2: {status:'auth', url:'Via Copernicus Data Space ou Sentinel Hub (clé API requise)', desc:'Images avant/après, calcul de salinité par pixel'},
+    landsat: {status:'auth', url:'USGS EarthExplorer (compte requis)', desc:'Séries historiques longues (archives)'},
+    fao: {status:'planned', url:'FAO — statistiques agricoles régionales', desc:'Rendements, pratiques culturales de référence'},
+    realtimeAgents: {status:'planned', url:'Backend requis (Node/Express + Socket.io ou Firebase Realtime DB)', desc:'Position multi-agents partagée en direct'},
+  }
+};
+const SOURCES = [
+  {key:'osmTiles', nom:'OpenStreetMap', ic:'🗺️', desc:'Fond de carte et voirie — en direct sur cette démo.'},
+  {key:'esriSat', nom:'Esri World Imagery', ic:'🛰️', desc:'Imagerie satellite haute résolution — en direct (vue « Satellite HD » sur la carte).'},
+  {key:'ansd', nom:'ANSD Sénégal', ic:'📊', desc:'Statistiques démographiques par localité.'},
+  {key:'anat', nom:'ANAT', ic:'📐', desc:'Limites administratives officielles exactes.'},
+  {key:'gadm', nom:'GADM', ic:'🧭', desc:'Polygones région/département/commune téléchargeables.'},
+  {key:'dgid', nom:'DGID', ic:'🏛️', desc:'Cadastre et foncier des champs agricoles.'},
+  {key:'copernicus', nom:'Copernicus', ic:'🛰️', desc:'Programme européen d\'observation de la Terre.'},
+  {key:'sentinel2', nom:'Sentinel-2', ic:'📡', desc:'Imagerie multispectrale, calcul de salinité réel.'},
+  {key:'landsat', nom:'Landsat', ic:'🛰️', desc:'Archives satellitaires longue durée.'},
+  {key:'fao', nom:'FAO', ic:'🌾', desc:'Référentiels agricoles régionaux.'},
+  {key:'realtimeAgents', nom:'Suivi agents temps réel', ic:'📍', desc:'Nécessite un backend dédié (voir ci-dessous).'},
+];
+function renderSources(){
+  const statusLabel = {live:'🟢 En direct', planned:'🟡 À intégrer', auth:'🟠 Clé API requise'};
+  document.getElementById('sourceGrid').innerHTML = SOURCES.map(s=>{
+    const d = CONFIG.dataSources[s.key];
+    return `<div class="source-card">
+      <div class="stitle">${s.ic} ${s.nom}</div>
+      <div class="sdesc">${s.desc}</div>
+      <span class="source-status ${d.status}">${statusLabel[d.status]}</span>
+    </div>`;
+  }).join('');
+}
+
+// ---- Structure administrative Zone Centre ----
+const REGIONS = [
+  {id:'kaolack', nom:'Kaolack', lat:14.1825, lng:-16.0728,
+    departements:[
+      {nom:'Kaolack', communes:['Kaolack Commune','Ndiédieng','Latmingué']},
+      {nom:'Guinguinéo', communes:['Guinguinéo','Mbadakhoune','Ndiago']},
+      {nom:'Nioro du Rip', communes:['Nioro du Rip','Keur Ayib','Paos Koto']},
+    ]},
+  {id:'fatick', nom:'Fatick', lat:14.3390, lng:-16.4110,
+    departements:[
+      {nom:'Fatick', communes:['Fatick','Diouroup','Fimela']},
+      {nom:'Foundiougne', communes:['Foundiougne','Passy','Djilor']},
+      {nom:'Gossas', communes:['Gossas','Ouadiour','Colobane']},
+    ]},
+  {id:'diourbel', nom:'Diourbel', lat:14.6572, lng:-16.2320,
+    departements:[
+      {nom:'Diourbel', communes:['Diourbel','Ndoulo','Tocky Gare']},
+      {nom:'Bambey', communes:['Bambey','Baba Garage','Lambaye']},
+      {nom:'Mbacké', communes:['Mbacké','Touba Mosquée','Dendéyène']},
+    ]},
+  {id:'kaffrine', nom:'Kaffrine', lat:14.1059, lng:-15.5508,
+    departements:[
+      {nom:'Kaffrine', communes:['Kaffrine','Nganda','Katakel']},
+      {nom:'Birkelane', communes:['Birkelane','Mabo','Keur Mboucki']},
+      {nom:'Koungheul', communes:['Koungheul','Ida Mouride','Saly Escale']},
+    ]},
+];
+
+const VILLAGE_NAMES = ['Keur Amary','Ndiaffate','Sob','Kahone','Médina Sabakh','Wack Ngouna','Keur Madiabel','Thiaré','Ndiobène','Sing Sing','Darou Salam','Keur Baka','Mbélème','Ndiakhaté','Touba Fall','Sadio','Keur Sanoun','Diokoul','Mbadane','Keur Yoro Diao'];
+const CULTURES = ['Arachide','Mil','Riz','Maïs','Niébé','Sésame','Manioc'];
+const AMENDEMENTS = [
+  {nom:'Gypse agricole', unite:'t/ha', cout:'85 000 – 110 000 FCFA/t'},
+  {nom:'Compost organique enrichi', unite:'t/ha', cout:'25 000 – 40 000 FCFA/t'},
+  {nom:'Sulfate de calcium', unite:'kg/ha', cout:'450 FCFA/kg'},
+  {nom:"Drainage + lessivage à l'eau douce", unite:'—', cout:'Variable selon accès eau'},
+  {nom:"Biochar de coque d'arachide", unite:'t/ha', cout:'30 000 FCFA/t'},
+];
+const ESPECES_FORET = ['Baobab (Adansonia digitata)','Rônier (Borassus akeassii)','Acacia raddiana','Eucalyptus','Andropogon gayanus','Balanites aegyptiaca','Combretum glutinosum'];
+
+// ---- Calcul de la solution d'amendement recommandée ----
+// Modèle simplifié inspiré des besoins en gypse agricole pour la récupération
+// de sols salins/sodiques (FAO) : dose (t/ha) proportionnelle au taux de
+// salinité détecté, avec choix de l'amendement selon la sévérité.
+function computeAmendment(f){
+  if(f.risk.key==='normal') return null;
+  const sal = f.salinite;
+  let amend, doseParHa;
+  if(sal<25){ amend = AMENDEMENTS[1]; doseParHa = +(1.2 + sal*0.06).toFixed(1); }       // compost organique
+  else if(sal<45){ amend = AMENDEMENTS[0]; doseParHa = +(1.5 + sal*0.09).toFixed(1); }  // gypse agricole
+  else if(sal<70){ amend = AMENDEMENTS[4]; doseParHa = +(2.0 + sal*0.08).toFixed(1); }  // biochar
+  else { amend = AMENDEMENTS[3]; doseParHa = null; }                                     // drainage + lessivage
+  const doseTotale = doseParHa ? +(doseParHa * f.superficie).toFixed(1) : null;
+  const coutUnitaireMax = parseInt((amend.cout.match(/[\d\s]+(?=\s*FCFA)/g)||['0']).pop().replace(/\s/g,'')) || 0;
+  const coutEstime = doseTotale && coutUnitaireMax ? Math.round(doseTotale*coutUnitaireMax) : null;
+  return { amend, doseParHa, doseTotale, coutEstime };
+}
+
+function riskLevel(pct){
+  if(pct<10) return {key:'normal', label:'Normale', color:'var(--risk-normal)'};
+  if(pct<25) return {key:'watch', label:'Risque', color:'var(--risk-watch)'};
+  if(pct<45) return {key:'medium', label:'Moyenne', color:'var(--risk-medium)'};
+  if(pct<65) return {key:'high', label:'Forte', color:'var(--risk-high)'};
+  return {key:'severe', label:'Très forte', color:'var(--risk-severe)'};
+}
+function riskHex(key){
+  return {normal:'#4C9A57', watch:'#E0C64C', medium:'#E0893C', high:'#C4402F', severe:'#6E1F27'}[key];
+}
+
+// ============================ TOAST & MINI MODAL ============================
+// Remplace alert()/prompt(), bloqués ou instables dans l'iframe sandboxée
+// où s'exécute cet artefact (pas de flag "allow-modals").
+function showToast(msg, type='info'){
+  const box = document.getElementById('toastBox');
+  const el = document.createElement('div');
+  el.className = 'toast'+(type==='err'?' err':'');
+  el.textContent = msg;
+  box.appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),300); }, 3200);
+}
+function askInput(title, placeholder){
+  return new Promise(resolve=>{
+    const backdrop = document.getElementById('miniModalBackdrop');
+    const modal = document.getElementById('miniModal');
+    const input = document.getElementById('miniModalInput');
+    document.getElementById('miniModalTitle').textContent = title;
+    input.placeholder = placeholder || '';
+    input.value = '';
+    backdrop.classList.add('open'); modal.classList.add('open');
+    setTimeout(()=>input.focus(), 50);
+    function cleanup(val){
+      backdrop.classList.remove('open'); modal.classList.remove('open');
+      okBtn.removeEventListener('click', onOk); cancelBtn.removeEventListener('click', onCancel);
+      backdrop.removeEventListener('click', onCancel); input.removeEventListener('keydown', onKey);
+      resolve(val);
+    }
+    const okBtn = document.getElementById('miniModalOk');
+    const cancelBtn = document.getElementById('miniModalCancel');
+    function onOk(){ cleanup(input.value.trim() || null); }
+    function onCancel(){ cleanup(null); }
+    function onKey(e){ if(e.key==='Enter') onOk(); if(e.key==='Escape') onCancel(); }
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    backdrop.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKey);
+  });
+}
+function safePrint(){
+  try{ window.print(); }
+  catch(e){ showToast('Impression indisponible dans cet aperçu — ouvrez le fichier dans un onglet séparé puis Ctrl/Cmd+P.', 'err'); }
+}
+
+// ---- Génération des champs agricoles ----
+let FIELDS = [];
+let idc = 1;
+REGIONS.forEach(r=>{
+  r.departements.forEach(dep=>{
+    dep.communes.forEach(com=>{
+      const nb = Math.floor(rand(3,6));
+      for(let i=0;i<nb;i++){
+        const lat = r.lat + rand(-0.28,0.28);
+        const lng = r.lng + rand(-0.28,0.28);
+        const salinite = Math.max(0, Math.min(98, rand(2,95) * (rng()<0.3?1:0.55)));
+        const risk = riskLevel(salinite);
+        const superficie = +(rand(0.8,12)).toFixed(1);
+        FIELDS.push({
+          id:'CH-'+String(idc++).padStart(4,'0'),
+          nom: 'Champ '+pick(VILLAGE_NAMES)+' '+String.fromCharCode(65+Math.floor(rng()*6)),
+          proprietaire: pick(['Amadou Ndiaye','Fatou Diop','Moussa Sarr','Aïssatou Fall','Ibrahima Sy','Mariama Ba','Cheikh Diallo','Ndeye Sokhna Gueye','Modou Cissé','Rokhaya Thiam']),
+          region:r.nom, regionId:r.id, departement:dep.nom, commune:com, village:pick(VILLAGE_NAMES),
+          lat, lng, superficie, culture:pick(CULTURES),
+          salinite:+salinite.toFixed(1), risk,
+          evolutionAnnuelle: +(salinite - rand(2,12)).toFixed(1),
+          tempsRecuperation: risk.key==='normal'?'—':Math.ceil(rand(6,30))+' mois',
+          lastDetection: new Date(Date.now() - rand(0,6)*3600000),
+        });
+      }
+    });
+  });
+});
+
+// ---- Génération des forêts ----
+let FORESTS = [];
+let idf = 1;
+REGIONS.forEach(r=>{
+  const nb = Math.floor(rand(2,4));
+  for(let i=0;i<nb;i++){
+    const lat = r.lat + rand(-0.3,0.3);
+    const lng = r.lng + rand(-0.3,0.3);
+    const salinite = +(rand(1,60)).toFixed(1);
+    const superficie = Math.round(rand(120,2400));
+    const arbres = Math.round(superficie * rand(80,220));
+    const degrade = +(rand(2,40)).toFixed(0);
+    FORESTS.push({
+      id:'FO-'+String(idf++).padStart(3,'0'),
+      nom: 'Forêt classée de '+pick(VILLAGE_NAMES),
+      region:r.nom, regionId:r.id, lat, lng, superficie, arbres,
+      salinite, risk:riskLevel(salinite),
+      evolutionAnnuelle: +(salinite - rand(1,9)).toFixed(1),
+      zoneDegradee: degrade, zoneSaine: 100-degrade,
+      especes: [pick(ESPECES_FORET), pick(ESPECES_FORET), pick(ESPECES_FORET)].filter((v,i,a)=>a.indexOf(v)===i),
+      risqueEnv: degrade>25 ? 'Élevé — avancée de la langue salée' : degrade>12 ? 'Modéré — surveillance recommandée' : 'Faible',
+      lastDetection: new Date(Date.now() - rand(0,6)*3600000),
+    });
+  }
+});
+
+// ---- Stats agrégées ----
+const totalChamps = FIELDS.length;
+const champsSalinises = FIELDS.filter(f=>f.risk.key!=='normal').length;
+const superficieAffectee = FIELDS.filter(f=>f.risk.key!=='normal').reduce((s,f)=>s+f.superficie,0);
+const superficieTotale = FIELDS.reduce((s,f)=>s+f.superficie,0);
+const pctTerritoire = (superficieAffectee/superficieTotale*100).toFixed(1);
+const totalForests = FORESTS.length;
+const totalArbres = FORESTS.reduce((s,f)=>s+f.arbres,0);
+
+// ============================ RENDU UI ============================
+
+function initStatGrid(){
+  const cards = [
+    {lbl:'Champs analysés', val:totalChamps, sub:'Zone Centre — 4 régions', cls:'', ic:'🌾'},
+    {lbl:'Champs salinisés', val:champsSalinises, sub:(champsSalinises/totalChamps*100).toFixed(0)+'% des champs suivis', cls:'danger', ic:'⚠️'},
+    {lbl:'Superficie affectée', val:superficieAffectee.toFixed(0)+' ha', sub:'sur '+superficieTotale.toFixed(0)+' ha cartographiés', cls:'warn', ic:'📐'},
+    {lbl:'Territoire touché', val:pctTerritoire+'%', sub:'proportion estimée', cls:'warn', ic:'🗺️'},
+    {lbl:'Forêts suivies', val:totalForests, sub:'4 régions couvertes', cls:'good', ic:'🌳'},
+    {lbl:'Arbres estimés', val:(totalArbres/1000).toFixed(0)+' k', sub:'comptage IA (estimation)', cls:'gold', ic:'🛰️'},
+    {lbl:'Agents géolocalisés', val:watchId!==null?1:0, sub:watchId!==null?'position active cette session':'aucun suivi actif — voir « Suivi agents »', cls:'', ic:'📍'},
+  ];
+  document.getElementById('statGrid').innerHTML = cards.map(c=>`
+    <div class="stat-card ${c.cls}"><div class="ic">${c.ic}</div><div class="lbl">${c.lbl}</div><div class="val">${c.val}</div><div class="sub">${c.sub}</div></div>
+  `).join('');
+}
+
+function initAlerts(){
+  const risky = FIELDS.filter(f=>f.risk.key==='high'||f.risk.key==='severe').sort((a,b)=>b.salinite-a.salinite).slice(0,6);
+  document.getElementById('alertCount').textContent = risky.length+' priorités';
+  document.getElementById('alertList').innerHTML = risky.map(f=>`
+    <div class="alert-row">
+      <span class="dot" style="background:${riskHex(f.risk.key)}"></span>
+      <div><b>${f.nom}</b> — ${f.village}, ${f.region}<div class="meta">Salinité ${f.salinite}% · ${f.superficie} ha · ${f.culture}</div></div>
+    </div>`).join('') || '<p style="font-size:12px;color:var(--sand-500)">Aucune alerte critique.</p>';
+}
+
+let CHARTS = {};
+function destroyChart(k){ if(CHARTS[k]){ CHARTS[k].destroy(); } }
+const chartFont = {family:"Inter", size:11};
+Chart.defaults.color = '#C9C2A8';
+Chart.defaults.borderColor = 'rgba(255,255,255,.06)';
+
+function initCharts(){
+  // Salinité moyenne par région
+  const byRegion = REGIONS.map(r=>{
+    const fs = FIELDS.filter(f=>f.regionId===r.id);
+    return {nom:r.nom, avg: fs.reduce((s,f)=>s+f.salinite,0)/fs.length};
+  });
+  destroyChart('region');
+  CHARTS.region = new Chart(document.getElementById('chartRegion'), {
+    type:'bar',
+    data:{labels:byRegion.map(r=>r.nom), datasets:[{data:byRegion.map(r=>+r.avg.toFixed(1)), backgroundColor: byRegion.map(r=>riskHex(riskLevel(r.avg).key)), borderRadius:6}]},
+    options:{plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, max:100, grid:{color:'rgba(255,255,255,.06)'}}, x:{grid:{display:false}}}}
+  });
+
+  // Évolution mensuelle (simulée)
+  const months = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil'];
+  const base = 18;
+  const evo = months.map((m,i)=> +(base + i*1.4 + rand(-1.5,1.5)).toFixed(1));
+  destroyChart('evo');
+  CHARTS.evo = new Chart(document.getElementById('chartEvo'), {
+    type:'line',
+    data:{labels:months, datasets:[{data:evo, borderColor:'#C9A227', backgroundColor:'rgba(201,162,39,.15)', fill:true, tension:.35, pointRadius:3}]},
+    options:{plugins:{legend:{display:false}}, scales:{y:{grid:{color:'rgba(255,255,255,.06)'}}, x:{grid:{display:false}}}}
+  });
+
+  // Répartition du risque
+  const riskKeys=['normal','watch','medium','high','severe'];
+  const riskLabels=['Normale','Risque','Moyenne','Forte','Très forte'];
+  const riskCounts = riskKeys.map(k=>FIELDS.filter(f=>f.risk.key===k).length);
+  document.getElementById('fieldCountLbl').textContent = totalChamps+' champs';
+  destroyChart('risk');
+  CHARTS.risk = new Chart(document.getElementById('chartRisk'), {
+    type:'doughnut',
+    data:{labels:riskLabels, datasets:[{data:riskCounts, backgroundColor:riskKeys.map(riskHex), borderWidth:0}]},
+    options:{plugins:{legend:{position:'bottom', labels:{boxWidth:10, font:chartFont}}}}
+  });
+}
+
+function initStatsCharts(){
+  const years=['2022','2023','2024','2025','2026'];
+  destroyChart('annual');
+  CHARTS.annual = new Chart(document.getElementById('chartAnnual'), {
+    type:'line',
+    data:{labels:years, datasets: REGIONS.map((r,i)=>({
+      label:r.nom,
+      data: years.map((y,j)=> +(8 + i*3 + j*2.2 + rand(-1,1)).toFixed(1)),
+      borderColor: ['#C9A227','#4C9A57','#C4402F','#E0893C'][i], tension:.3, pointRadius:2
+    }))},
+    options:{plugins:{legend:{position:'bottom', labels:{boxWidth:10, font:chartFont}}}, scales:{y:{grid:{color:'rgba(255,255,255,.06)'}}, x:{grid:{display:false}}}}
+  });
+
+  destroyChart('surface');
+  const surf = REGIONS.map(r=>FIELDS.filter(f=>f.regionId===r.id && f.risk.key!=='normal').reduce((s,f)=>s+f.superficie,0));
+  CHARTS.surface = new Chart(document.getElementById('chartSurface'), {
+    type:'bar',
+    data:{labels:REGIONS.map(r=>r.nom), datasets:[{data:surf.map(v=>+v.toFixed(0)), backgroundColor:'#E0893C', borderRadius:6}]},
+    options:{plugins:{legend:{display:false}}, scales:{y:{grid:{color:'rgba(255,255,255,.06)'}}, x:{grid:{display:false}}}}
+  });
+
+  destroyChart('cultures');
+  const culCounts = CULTURES.map(c=>FIELDS.filter(f=>f.culture===c && f.risk.key!=='normal').length);
+  CHARTS.cultures = new Chart(document.getElementById('chartCultures'), {
+    type:'polarArea',
+    data:{labels:CULTURES, datasets:[{data:culCounts, backgroundColor:['#C9A227cc','#4C9A57cc','#C4402Fcc','#E0893Ccc','#E0C64Ccc','#6E1F27cc','#8E9686cc']}]},
+    options:{plugins:{legend:{position:'bottom', labels:{boxWidth:10, font:chartFont}}}}
+  });
+
+  destroyChart('forets');
+  const degTotal = FORESTS.reduce((s,f)=>s+f.zoneDegradee,0)/FORESTS.length;
+  CHARTS.forets = new Chart(document.getElementById('chartForets'), {
+    type:'doughnut',
+    data:{labels:['Zones saines','Zones dégradées'], datasets:[{data:[100-degTotal, degTotal], backgroundColor:['#4C9A57','#6E1F27']}]},
+    options:{plugins:{legend:{position:'bottom', labels:{boxWidth:10, font:chartFont}}}}
+  });
+}
+
+// ---- Region filter selects ----
+function fillRegionSelects(){
+  const opts = REGIONS.map(r=>`<option value="${r.id}">${r.nom}</option>`).join('');
+  ['regionFilter','champRegionF','foretRegionF'].forEach(id=>{
+    document.getElementById(id).insertAdjacentHTML('beforeend', opts);
+  });
+}
+
+// ---- Table: champs ----
+function renderChampsTable(){
+  const q = document.getElementById('champSearch').value.toLowerCase();
+  const reg = document.getElementById('champRegionF').value;
+  const risk = document.getElementById('champRiskF').value;
+  const rows = FIELDS.filter(f=>{
+    if(reg!=='all' && f.regionId!==reg) return false;
+    if(risk!=='all' && f.risk.key!==risk) return false;
+    if(q && !(f.nom.toLowerCase().includes(q)||f.proprietaire.toLowerCase().includes(q)||f.village.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  document.querySelector('#champsTable tbody').innerHTML = rows.map(f=>`
+    <tr class="rowlink" data-type="champ" data-id="${f.id}">
+      <td><b>${f.nom}</b><br><span style="color:var(--sand-500);font-size:11px;">${f.id}</span></td>
+      <td>${f.proprietaire}</td>
+      <td>${f.village}, ${f.commune}</td>
+      <td>${f.region}</td>
+      <td class="mono" style="font-size:11px;">${f.lat.toFixed(4)}, ${f.lng.toFixed(4)}</td>
+      <td>${f.superficie} ha</td>
+      <td>${f.culture}</td>
+      <td>${f.salinite}%</td>
+      <td><span class="pill" style="background:${riskHex(f.risk.key)}22;color:${riskHex(f.risk.key)}"><span style="width:7px;height:7px;border-radius:50%;background:${riskHex(f.risk.key)};display:inline-block;"></span>${f.risk.label}</span></td>
+    </tr>`).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--sand-500);padding:24px;">Aucun résultat</td></tr>';
+}
+
+// ---- Forest cards ----
+function renderForestGrid(){
+  const q = document.getElementById('foretSearch').value.toLowerCase();
+  const reg = document.getElementById('foretRegionF').value;
+  const list = FORESTS.filter(f=>{
+    if(reg!=='all' && f.regionId!==reg) return false;
+    if(q && !f.nom.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  document.getElementById('forestGrid').innerHTML = list.map(f=>`
+    <div class="forest-card" data-type="foret" data-id="${f.id}">
+      <div class="forest-top" style="background:linear-gradient(135deg, ${riskHex(f.risk.key)}55, ${riskHex(f.risk.key)}15);">🌳</div>
+      <div class="forest-body">
+        <h4>${f.nom}</h4>
+        <div class="loc">${f.region} · ${f.superficie} ha</div>
+        <div class="forest-stats">
+          <div>${f.arbres.toLocaleString('fr-FR')}<span>Arbres estimés</span></div>
+          <div style="color:${riskHex(f.risk.key)}">${f.salinite}%<span>Salinité</span></div>
+          <div>${f.zoneSaine.toFixed(0)}%<span>Zones saines</span></div>
+          <div>${f.zoneDegradee.toFixed(0)}%<span>Zones dégradées</span></div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+// ---- Régions de la Zone Centre : régions, forêts, localités, coordonnées ----
+function renderRegionsView(){
+  document.getElementById('regionsSummary').textContent = totalForests+' forêts suivies · '+totalChamps+' champs cartographiés';
+  document.getElementById('regionGrid').innerHTML = REGIONS.map(r=>{
+    const foretsR = FORESTS.filter(f=>f.regionId===r.id);
+    const champsR = FIELDS.filter(f=>f.regionId===r.id);
+    const arbresR = foretsR.reduce((s,f)=>s+f.arbres,0);
+    const salMoy = foretsR.length ? (foretsR.reduce((s,f)=>s+f.salinite,0)/foretsR.length) : 0;
+    const localites = [...new Set(r.departements.flatMap(d=>d.communes))];
+    return `
+    <div class="region-card">
+      <div class="rtitle">${r.nom} <span class="live-badge" style="font-size:9.5px;"><span class="dot"></span>live</span></div>
+      <div class="rcoord">📍 Centre région : ${r.lat.toFixed(4)}°N, ${Math.abs(r.lng).toFixed(4)}°O</div>
+      <div class="rstats">
+        <div><b>${foretsR.length}</b>Forêts</div>
+        <div><b>${champsR.length}</b>Champs suivis</div>
+        <div><b>${(arbresR/1000).toFixed(0)}k</b>Plants</div>
+        <div style="color:${riskHex(riskLevel(salMoy).key)}"><b>${salMoy.toFixed(1)}%</b>Salinité moy. forêts</div>
+      </div>
+      <div class="rsub">Départements &amp; localités exactes</div>
+      <div class="rlist">${r.departements.map(d=>`<b>${d.nom}</b> — ${d.communes.join(', ')}`).join('<br>')}</div>
+      <div class="rsub">Forêts suivies — coordonnées &amp; évolution de la salinité</div>
+      <div>${foretsR.map(f=>`
+        <div class="rforet-row" data-type="foret" data-id="${f.id}">
+          <span>🌳 ${f.nom} <span style="color:${riskHex(f.risk.key)}">· ${f.salinite}%</span></span>
+          <span class="coord">${f.lat.toFixed(4)}, ${f.lng.toFixed(4)}</span>
+        </div>`).join('') || '<span style="color:var(--sand-500);font-size:11px;">Aucune forêt enregistrée.</span>'}</div>
+    </div>`;
+  }).join('');
+}
+
+// ---- Admin users (mock) ----
+let USERS = [
+  {nom:'Effff Diagne', email:'admin@salinconnect.sn', role:'Administrateur', region:'Toutes régions', statut:'Actif'},
+  {nom:'Aïda Ndour', email:'a.ndour@salinconnect.sn', role:'Agronome', region:'Kaolack', statut:'Actif'},
+  {nom:'Souleymane Ba', email:'s.ba@salinconnect.sn', role:'Agent de terrain', region:'Fatick', statut:'Actif'},
+  {nom:'Khady Sène', email:'k.sene@salinconnect.sn', role:'Agent de terrain', region:'Diourbel', statut:'Invité'},
+];
+function renderUsers(){
+  document.querySelector('#usersTable tbody').innerHTML = USERS.map((u,i)=>`
+    <tr><td><b>${u.nom}</b></td><td>${u.email}</td><td><span class="badge-role">${u.role}</span></td><td>${u.region}</td>
+    <td>${u.statut==='Actif'?'🟢 Actif':'🟡 Invité'}</td>
+    <td><button class="icon-btn" style="width:30px;height:30px;font-size:12px;" onclick="USERS.splice(${i},1);renderUsers();">✕</button></td></tr>
+  `).join('');
+}
+document.getElementById('addUserBtn').onclick = async ()=>{
+  const nom = await askInput('Nouvel utilisateur', 'Nom complet');
+  if(!nom) return;
+  USERS.push({nom, email:nom.toLowerCase().replace(/\s+/g,'.')+'@salinconnect.sn', role:'Agent de terrain', region:'Non assignée', statut:'Invité'});
+  renderUsers();
+  showToast('Utilisateur « '+nom+' » ajouté.');
+};
+
+// ============================ CARTE (Leaflet) ============================
+let map, layerChamps, layerForets, layerVillages, layerImpact;
+let baseLayerPlan, baseLayerSat;
+let currentMapRegion = 'all';
+function renderMapMarkers(){
+  layerChamps.clearLayers(); layerForets.clearLayers(); layerImpact.clearLayers();
+  const fieldsF = currentMapRegion==='all' ? FIELDS : FIELDS.filter(f=>f.regionId===currentMapRegion);
+  const forestsF = currentMapRegion==='all' ? FORESTS : FORESTS.filter(f=>f.regionId===currentMapRegion);
+  const regionsF = currentMapRegion==='all' ? REGIONS : REGIONS.filter(r=>r.id===currentMapRegion);
+
+  // Zones impactées détectées par analyse satellite : un halo régional
+  // (étendue globale) + un cercle précis par champ affecté (emplacement exact).
+  regionsF.forEach(r=>{
+    const champsR = FIELDS.filter(f=>f.regionId===r.id);
+    const affectesR = champsR.filter(f=>f.risk.key!=='normal');
+    if(!affectesR.length) return;
+    const moy = affectesR.reduce((s,f)=>s+f.salinite,0)/affectesR.length;
+    const risk = riskLevel(moy);
+    const rayon = 6000 + (affectesR.length/champsR.length)*18000;
+    L.circle([r.lat,r.lng], {
+      radius: rayon, color: riskHex(risk.key), weight:1, fillColor: riskHex(risk.key), fillOpacity:.10, dashArray:'4 6'
+    }).bindTooltip(`🛰️ Zone impactée — ${r.nom}<br>${affectesR.length}/${champsR.length} champs · salinité moy. ${moy.toFixed(1)}%`, {direction:'center'})
+      .addTo(layerImpact);
+  });
+  fieldsF.filter(f=>f.risk.key!=='normal').forEach(f=>{
+    L.circle([f.lat,f.lng], {
+      radius: 180 + f.salinite*8, color: riskHex(f.risk.key), weight:1, fillColor: riskHex(f.risk.key), fillOpacity:.16
+    }).bindTooltip(`🛰️ Zone détectée — ${f.nom}<br>Emplacement exact : ${f.lat.toFixed(5)}, ${f.lng.toFixed(5)}<br>Salinité ${f.salinite}%`, {direction:'top'})
+      .addTo(layerImpact);
+  });
+
+  fieldsF.forEach(f=>{
+    const c = L.circleMarker([f.lat,f.lng], {
+      radius:6, color:'#0F1B14', weight:1, fillColor:riskHex(f.risk.key), fillOpacity:.9
+    }).bindTooltip(`${f.nom} — ${f.salinite}%`, {direction:'top'});
+    c.on('click', ()=>openDrawer('champ', f.id));
+    c.addTo(layerChamps);
+  });
+
+  forestsF.forEach(f=>{
+    const marker = L.circleMarker([f.lat,f.lng], {
+      radius:11, color:'#1C3024', weight:2, fillColor:riskHex(f.risk.key), fillOpacity:.55
+    }).bindTooltip(`🌳 ${f.nom}`, {direction:'top'});
+    marker.on('click', ()=>openDrawer('foret', f.id));
+    marker.addTo(layerForets);
+  });
+}
+
+function initMap(){
+  map = L.map('map', {zoomControl:true}).setView([14.35,-15.95], 8);
+  baseLayerPlan = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution:'&copy; OpenStreetMap contributors', maxZoom:17
+  }).addTo(map);
+  baseLayerSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution:'Imagerie &copy; Esri, Maxar, Earthstar Geographics', maxZoom:17
+  });
+  document.getElementById('baseLayerPlan').onclick = ()=>{
+    map.removeLayer(baseLayerSat); map.addLayer(baseLayerPlan);
+    document.getElementById('baseLayerPlan').classList.add('active');
+    document.getElementById('baseLayerSat').classList.remove('active');
+  };
+  document.getElementById('baseLayerSat').onclick = ()=>{
+    map.removeLayer(baseLayerPlan); map.addLayer(baseLayerSat);
+    document.getElementById('baseLayerSat').classList.add('active');
+    document.getElementById('baseLayerPlan').classList.remove('active');
+  };
+
+  const coordBox = document.getElementById('mapCoordBox');
+  const updateCoordBox = ()=>{
+    const c = map.getCenter();
+    coordBox.textContent = `${c.lat.toFixed(2)}°N, ${Math.abs(c.lng).toFixed(2)}°O · zoom ${map.getZoom()}`;
+  };
+  map.on('move zoom', updateCoordBox);
+  updateCoordBox();
+
+  layerChamps = L.layerGroup().addTo(map);
+  layerForets = L.layerGroup().addTo(map);
+  layerVillages = L.layerGroup().addTo(map);
+  layerImpact = L.layerGroup().addTo(map);
+
+  renderMapMarkers();
+
+  const villageSet = new Map();
+  FIELDS.forEach(f=>{ villageSet.set(f.village+f.region, {nom:f.village, region:f.region, lat:f.lat+rand(-0.02,0.02), lng:f.lng+rand(-0.02,0.02)}); });
+  [...villageSet.values()].forEach(v=>{
+    L.circleMarker([v.lat,v.lng], {radius:3, color:'#F3EEDF', weight:1, fillColor:'#F3EEDF', fillOpacity:.8})
+      .bindTooltip(v.nom, {permanent:false, direction:'right'})
+      .addTo(layerVillages);
+  });
+
+  document.getElementById('lyChamps').onchange = e=> e.target.checked ? map.addLayer(layerChamps): map.removeLayer(layerChamps);
+  document.getElementById('lyForets').onchange = e=> e.target.checked ? map.addLayer(layerForets): map.removeLayer(layerForets);
+  document.getElementById('lyVillages').onchange = e=> e.target.checked ? map.addLayer(layerVillages): map.removeLayer(layerVillages);
+  document.getElementById('lyImpact').onchange = e=> e.target.checked ? map.addLayer(layerImpact): map.removeLayer(layerImpact);
+  document.getElementById('regionFilter').onchange = e=>{
+    currentMapRegion = e.target.value;
+    const r = REGIONS.find(x=>x.id===currentMapRegion);
+    renderMapMarkers();
+    if(r) map.setView([r.lat,r.lng], 10); else map.setView([14.35,-15.95], 8);
+  };
+}
+
+// ============================ DRAWER (fiche détaillée) ============================
+function openDrawer(type, id){
+  const drawer = document.getElementById('drawer');
+  if(type==='champ'){
+    const f = FIELDS.find(x=>x.id===id);
+    document.getElementById('drTitle').textContent = f.nom;
+    document.getElementById('drTag').textContent = f.id+' · '+f.region+' / '+f.departement+' / '+f.commune;
+    const reco = computeAmendment(f);
+    document.getElementById('drawerBody').innerHTML = `
+      <span class="risk-badge" style="background:${riskHex(f.risk.key)}22;color:${riskHex(f.risk.key)}">● Salinité ${f.risk.label.toLowerCase()}</span>
+      <div class="gauge-wrap">
+        <div class="gauge" style="background:conic-gradient(${riskHex(f.risk.key)} ${f.salinite*3.6}deg, var(--earth-800) 0deg);">
+          <span>${f.salinite}%</span>
+        </div>
+        <div style="font-size:12px;color:var(--sand-300);line-height:1.6;">
+          Taux de salinité détecté par analyse IA des dernières images satellitaires.<br>
+          Évolution sur 12 mois : <b style="color:${f.evolutionAnnuelle>=0?'#C4402F':'#4C9A57'}">${f.evolutionAnnuelle>=0?'+':''}${f.evolutionAnnuelle}%</b>
+        </div>
+      </div>
+      <div class="info-grid">
+        <div class="info-item"><div class="k">Propriétaire</div><div class="v">${f.proprietaire}</div></div>
+        <div class="info-item"><div class="k">Superficie</div><div class="v">${f.superficie} ha</div></div>
+        <div class="info-item"><div class="k">Village</div><div class="v">${f.village}</div></div>
+        <div class="info-item"><div class="k">Culture actuelle</div><div class="v">${f.culture}</div></div>
+        <div class="info-item"><div class="k">Coordonnées GPS</div><div class="v mono">${f.lat.toFixed(5)}, ${f.lng.toFixed(5)}</div></div>
+        <div class="info-item"><div class="k">Dernière détection satellite</div><div class="v">${f.lastDetection.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div></div>
+        <div class="info-item"><div class="k">Temps de récupération estimé</div><div class="v">${f.tempsRecuperation}</div></div>
+      </div>
+      <div class="compare-imgs">
+        <div class="im" style="background:linear-gradient(160deg,#3a4a2e,#2a3620);">📷 Image « avant »<br><span style="opacity:.7">(intégration satellite à venir)</span></div>
+        <div class="im" style="background:linear-gradient(160deg, ${riskHex(f.risk.key)}77, ${riskHex(f.risk.key)}33);">📷 Image « après »<br><span style="opacity:.7">zone de salinité mise en évidence</span></div>
+      </div>
+      <div class="reco-box">
+        <h4>🧪 Recommandations IA — solution de traitement</h4>
+        ${!reco ? `<div class="reco-line"><span class="k">Aucune intervention urgente</span><span class="v">Surveillance annuelle</span></div>` : `
+        <div class="reco-line"><span class="k">Amendement conseillé</span><span class="v">${reco.amend.nom}</span></div>
+        ${reco.doseParHa ? `
+        <div class="amend-calc">
+          <div class="ac-box"><div class="k">Dose / hectare</div><div class="v">${reco.doseParHa} ${reco.amend.unite}</div></div>
+          <div class="ac-box"><div class="k">Quantité totale (${f.superficie} ha)</div><div class="v">${reco.doseTotale} ${reco.amend.unite.split('/')[0]}</div></div>
+        </div>
+        <div class="reco-line"><span class="k">Coût estimé (borne haute)</span><span class="v">${reco.coutEstime ? reco.coutEstime.toLocaleString('fr-FR')+' FCFA' : reco.amend.cout}</span></div>
+        ` : `<div class="reco-line"><span class="k">Protocole</span><span class="v">${reco.amend.nom} — ${reco.amend.cout}</span></div>`}
+        <div class="reco-line"><span class="k">Cultures recommandées</span><span class="v">${pick(['Niébé résistant au sel','Sorgho','Patate douce','Riz tolérant NERICA'])}</span></div>
+        <div class="reco-line"><span class="k">Calendrier</span><span class="v">Application en début de saison sèche</span></div>
+        `}
+      </div>
+      <div class="drawer-actions">
+        <button class="btn-sm" onclick="safePrint()">🖨️ Rapport PDF</button>
+        <button class="btn-sm gold" onclick="showToast('Fiche exportée vers Excel (CSV) — module démo.')">⭳ Exporter</button>
+      </div>`;
+  } else {
+    const f = FORESTS.find(x=>x.id===id);
+    document.getElementById('drTitle').textContent = f.nom;
+    document.getElementById('drTag').textContent = f.id+' · '+f.region;
+    document.getElementById('drawerBody').innerHTML = `
+      <span class="risk-badge" style="background:${riskHex(f.risk.key)}22;color:${riskHex(f.risk.key)}">● Salinité ${f.risk.label.toLowerCase()}</span>
+      <div class="info-grid">
+        <div class="info-item"><div class="k">Superficie</div><div class="v">${f.superficie.toLocaleString('fr-FR')} ha</div></div>
+        <div class="info-item"><div class="k">Nombre de plants</div><div class="v">${f.arbres.toLocaleString('fr-FR')}</div></div>
+        <div class="info-item"><div class="k">Coordonnées GPS exactes</div><div class="v mono">${f.lat.toFixed(5)}, ${f.lng.toFixed(5)}</div></div>
+        <div class="info-item"><div class="k">Dernière détection satellite</div><div class="v">${f.lastDetection.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div></div>
+        <div class="info-item"><div class="k">Niveau de salinité (temps réel)</div><div class="v">${f.salinite}%</div></div>
+        <div class="info-item"><div class="k">Évolution sur 12 mois</div><div class="v" style="color:${f.evolutionAnnuelle>=0?'#C4402F':'#4C9A57'}">${f.evolutionAnnuelle>=0?'+':''}${f.evolutionAnnuelle}%</div></div>
+        <div class="info-item"><div class="k">Zones saines</div><div class="v" style="color:#4C9A57">${f.zoneSaine.toFixed(0)}%</div></div>
+        <div class="info-item"><div class="k">Zones dégradées</div><div class="v" style="color:#C4402F">${f.zoneDegradee.toFixed(0)}%</div></div>
+      </div>
+      <div class="reco-box">
+        <h4>🌱 Espèces présentes</h4>
+        <div style="font-size:12.5px;line-height:2;">${f.especes.map(e=>'• '+e).join('<br>')}</div>
+      </div>
+      <div class="reco-box">
+        <h4>⚠️ Risque environnemental</h4>
+        <div style="font-size:12.5px;">${f.risqueEnv}</div>
+      </div>
+      <div class="drawer-actions">
+        <button class="btn-sm" onclick="safePrint()">🖨️ Rapport PDF</button>
+        <button class="btn-sm gold" onclick="showToast('Fiche exportée vers Excel (CSV) — module démo.')">⭳ Exporter</button>
+      </div>`;
+  }
+  drawer.classList.add('open');
+  document.getElementById('drawerBackdrop').classList.add('open');
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawerBackdrop').classList.remove('open');
+}
+document.getElementById('drawerClose').onclick = closeDrawer;
+document.getElementById('drawerBackdrop').onclick = closeDrawer;
+
+// ---- Delegated clicks for table/grid rows ----
+document.addEventListener('click', (e)=>{
+  const row = e.target.closest('[data-type]');
+  if(row) openDrawer(row.dataset.type, row.dataset.id);
+});
+
+// ============================ SUIVI AGENTS (géolocalisation réelle) ============================
+// Utilise l'API navigator.geolocation du navigateur : position réelle de CET
+// appareil, avec consentement explicite (le prompt natif du navigateur).
+// Pour du multi-agents partagé en direct, voir CONFIG.dataSources.realtimeAgents.
+let AGENT_LOG = [];
+let watchId = null;
+let lastKnownPos = null;
+let missionTimerId = null;
+const MISSION_WINDOW_MS = 4*60*60*1000; // alerte si aucun point de contrôle depuis 4h
+
+function haversineKm(lat1,lng1,lat2,lng2){
+  const R=6371, toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function nearestSite(lat,lng){
+  let best=null, bestD=Infinity;
+  [...FIELDS.map(f=>({type:'champ',ref:f})), ...FORESTS.map(f=>({type:'forêt',ref:f}))].forEach(s=>{
+    const d = haversineKm(lat,lng,s.ref.lat,s.ref.lng);
+    if(d<bestD){ bestD=d; best={...s, dist:d}; }
+  });
+  return best;
+}
+function fillAgentSelect(){
+  const agents = USERS.filter(u=>u.role==='Agent de terrain');
+  document.getElementById('agentSelect').innerHTML = (agents.length?agents:USERS).map(u=>`<option>${u.nom} — ${u.region}</option>`).join('');
+}
+function setGpsUI(state, text){
+  document.getElementById('gpsDot').className = 'dot'+(state==='on'?' on':state==='err'?' err':'');
+  document.getElementById('gpsStatusText').textContent = text;
+}
+function toggleGps(){
+  if(watchId!==null){
+    navigator.geolocation.clearWatch(watchId); watchId=null;
+    setGpsUI('off','Localisation désactivée');
+    document.getElementById('gpsToggle').textContent='📍 Activer ma position';
+    document.getElementById('checkpointBtn').disabled = true;
+    if(agentMarker){ map.removeLayer(agentMarker); agentMarker=null; }
+    return;
+  }
+  if(!('geolocation' in navigator)){ setGpsUI('err','Géolocalisation non supportée par ce navigateur'); return; }
+  setGpsUI('off','Demande d\'autorisation…');
+  watchId = navigator.geolocation.watchPosition(
+    pos=>{
+      lastKnownPos = {lat:pos.coords.latitude, lng:pos.coords.longitude, acc:pos.coords.accuracy};
+      setGpsUI('on', 'Position active · précision ±'+Math.round(pos.coords.accuracy)+' m');
+      document.getElementById('gpsCoords').textContent = lastKnownPos.lat.toFixed(5)+', '+lastKnownPos.lng.toFixed(5);
+      document.getElementById('checkpointBtn').disabled = false;
+      document.getElementById('gpsToggle').textContent='⏹️ Désactiver ma position';
+      placeAgentMarker(lastKnownPos.lat, lastKnownPos.lng);
+    },
+    err=>{ setGpsUI('err', 'Position refusée ou indisponible ('+err.message+')'); },
+    {enableHighAccuracy:true, maximumAge:5000, timeout:15000}
+  );
+}
+let agentMarker=null;
+function placeAgentMarker(lat,lng){
+  if(!map) return;
+  if(!agentMarker){
+    agentMarker = L.circleMarker([lat,lng], {radius:8, color:'#fff', weight:2, fillColor:'#2F8FE0', fillOpacity:.95}).bindTooltip('📍 Ma position', {direction:'top'}).addTo(map);
+  } else {
+    agentMarker.setLatLng([lat,lng]);
+  }
+}
+function recordCheckpoint(){
+  if(!lastKnownPos) return;
+  const site = nearestSite(lastKnownPos.lat, lastKnownPos.lng);
+  const agent = document.getElementById('agentSelect').value || 'Agent';
+  const entry = {
+    t: new Date(), agent, lat:lastKnownPos.lat, lng:lastKnownPos.lng,
+    site: site ? `${site.type} « ${site.ref.nom} »` : 'Aucun site à proximité',
+    dist: site ? site.dist.toFixed(2)+' km' : '—',
+  };
+  AGENT_LOG.unshift(entry);
+  renderAgentTimeline();
+  updateMissionAlert();
+}
+function renderAgentTimeline(){
+  document.getElementById('checkpointCount').textContent = AGENT_LOG.length ? '· '+AGENT_LOG.length+' point(s)' : '';
+  document.getElementById('agentTimeline').innerHTML = AGENT_LOG.length ? AGENT_LOG.map(e=>`
+    <div class="tl-row"><span class="tl-dot"></span>
+      <div class="tl-body">
+        <div class="k">${e.agent} — ${e.site}</div>
+        <div class="m">${e.t.toLocaleString('fr-FR')} · ${e.lat.toFixed(5)}, ${e.lng.toFixed(5)} · à ${e.dist} du site le plus proche</div>
+      </div>
+    </div>`).join('') : '<p style="font-size:12px;color:var(--sand-500);">Aucun point de contrôle enregistré pour cette session.</p>';
+}
+function updateMissionAlert(){
+  const badge = document.getElementById('agentNavBadge');
+  const badge2 = document.getElementById('agentNavBadge2');
+  const box = document.getElementById('missionAlertBox');
+  const last = AGENT_LOG[0];
+  const overdue = !last || (Date.now() - last.t.getTime() > MISSION_WINDOW_MS);
+  badge.classList.toggle('hidden', !overdue);
+  badge2.classList.toggle('hidden', !overdue);
+  box.innerHTML = overdue ? `<div class="mission-alert">⚠️ <div>Aucun point de contrôle enregistré depuis plus de ${MISSION_WINDOW_MS/3600000}h — mission possiblement non effectuée pour l'agent sélectionné.</div></div>` : '';
+}
+function initAgentTracking(){
+  fillAgentSelect();
+  document.getElementById('gpsToggle').onclick = toggleGps;
+  document.getElementById('checkpointBtn').onclick = recordCheckpoint;
+  renderAgentTimeline();
+  updateMissionAlert();
+  if(missionTimerId) clearInterval(missionTimerId);
+  missionTimerId = setInterval(updateMissionAlert, 60000);
+}
+
+// ============================ NAVIGATION ============================
+const VIEW_TITLES = {dashboard:'Tableau de bord', carte:'Carte interactive', champs:'Champs agricoles', forets:'Forêts', regions:'Régions — Zone Centre', stats:'Statistiques', agents:'Suivi agents', admin:'Administration', sources:'Sources & couverture'};
+function switchView(v){
+  document.querySelectorAll('.view-trigger').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+  document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
+  document.getElementById('view-'+v).classList.add('active');
+  document.getElementById('viewTitle').textContent = VIEW_TITLES[v];
+  if(v==='carte' && map) setTimeout(()=>map.invalidateSize(), 60);
+  if(v==='stats') initStatsCharts();
+  if(v==='agents') initAgentTracking();
+  if(v==='sources') renderSources();
+  if(v==='regions') renderRegionsView();
+}
+document.querySelectorAll('.view-trigger').forEach(btn=>{
+  btn.addEventListener('click', ()=> switchView(btn.dataset.view));
+});
+
+// ============================ RECHERCHE GLOBALE ============================
+document.getElementById('globalSearch').addEventListener('input', (e)=>{
+  const q = e.target.value.trim().toLowerCase();
+  if(q.length<2) return;
+  const f = FIELDS.find(x=>x.nom.toLowerCase().includes(q)||x.village.toLowerCase().includes(q)||x.proprietaire.toLowerCase().includes(q));
+  if(f){ switchView('carte'); setTimeout(()=>{ map.setView([f.lat,f.lng],13); openDrawer('champ', f.id); }, 150); }
+});
+
+['champSearch','champRegionF','champRiskF'].forEach(id=>document.getElementById(id).addEventListener('input', renderChampsTable));
+['foretSearch','foretRegionF'].forEach(id=>document.getElementById(id).addEventListener('input', renderForestGrid));
+
+// ============================ EXPORTS ============================
+document.getElementById('exportCsv').onclick = ()=>{
+  const header = ['ID','Nom','Proprietaire','Village','Commune','Region','Superficie_ha','Culture','Salinite_pct','Niveau_risque'];
+  const rows = FIELDS.map(f=>[f.id,f.nom,f.proprietaire,f.village,f.commune,f.region,f.superficie,f.culture,f.salinite,f.risk.label]);
+  const csv = [header.join(';'), ...rows.map(r=>r.join(';'))].join('\n');
+  const blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'salinconnect_champs.csv'; a.click();
+};
+document.getElementById('exportPdf').onclick = safePrint;
+
+// ============================ THEME ============================
+document.getElementById('themeToggle').onclick = ()=>{
+  const cur = document.body.getAttribute('data-theme');
+  document.body.setAttribute('data-theme', cur==='dark'?'light':'dark');
+};
+
+// ============================ SIDEBAR (mobile) ============================
+function toggleSidebar(open){
+  document.getElementById('sidebar').classList.toggle('open', open);
+  document.getElementById('sidebarBackdrop').classList.toggle('open', open);
+}
+document.getElementById('sidebarToggle').onclick = ()=> toggleSidebar(!document.getElementById('sidebar').classList.contains('open'));
+document.getElementById('sidebarBackdrop').onclick = ()=> toggleSidebar(false);
+document.querySelectorAll('.nav-item').forEach(b=> b.addEventListener('click', ()=> toggleSidebar(false)));
+
+// ============================ SYNC CLOCK ============================
+function tickClock(){
+  const t = new Date().toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  document.getElementById('syncClock').textContent = t;
+  ['mapLiveClock','foretLiveClock','regionsLiveClock'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.textContent = t;
+  });
+}
+setInterval(tickClock, 1000);
+
+// ============================ SUIVI TEMPS RÉEL — SALINITÉ (simulation IA/satellite) ============================
+// Simule l'arrivée de nouvelles détections satellite : une petite variation
+// aléatoire est appliquée à un sous-ensemble de champs et de forêts toutes
+// les 10 secondes, puis les vues actuellement visibles sont rafraîchies.
+function jitterSalinity(){
+  const nChamps = Math.min(4, FIELDS.length);
+  for(let i=0;i<nChamps;i++){
+    const f = FIELDS[Math.floor(rng()*FIELDS.length)];
+    const prevKey = f.risk.key;
+    f.salinite = +Math.max(0, Math.min(98, f.salinite + rand(-1.5,1.8))).toFixed(1);
+    f.risk = riskLevel(f.salinite);
+    f.lastDetection = new Date();
+    if(prevKey!=='severe' && f.risk.key==='severe'){
+      showToast(`⚠️ Alerte critique — ${f.nom} (${f.village}) vient de passer en salinité très forte (${f.salinite}%).`, 'err');
+    }
+  }
+  const nForets = Math.min(2, FORESTS.length);
+  for(let i=0;i<nForets;i++){
+    const f = FORESTS[Math.floor(rng()*FORESTS.length)];
+    f.salinite = +Math.max(0, Math.min(98, f.salinite + rand(-1,1.2))).toFixed(1);
+    f.risk = riskLevel(f.salinite);
+    f.lastDetection = new Date();
+  }
+  // Rafraîchit la vue active sans perturber la navigation
+  const active = document.querySelector('.view.active');
+  const av = active ? active.id.replace('view-','') : '';
+  if(av==='dashboard'){ initStatGrid(); initAlerts(); }
+  if(av==='champs') renderChampsTable();
+  if(av==='forets') renderForestGrid();
+  if(av==='regions') renderRegionsView();
+  if(av==='carte' && map){
+    renderMapMarkers();
+  }
+}
+setInterval(jitterSalinity, 10000);
+
+// ============================ BOOT (accès direct, sans connexion) ============================
+let booted = false;
+function boot(){
+  if(booted) return; booted = true;
+  fillRegionSelects();
+  initStatGrid();
+  initAlerts();
+  initCharts();
+  renderChampsTable();
+  renderForestGrid();
+  renderRegionsView();
+  renderUsers();
+  renderSources();
+  initMap();
+  tickClock();
+}
+boot();
+</script>
+</body>
+</html>
