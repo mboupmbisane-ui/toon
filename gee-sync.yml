@@ -1,0 +1,23 @@
+name: Synchronisation Google Earth Engine (données réelles forêts)
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # tous les jours à 06:00 UTC (~06:00/07:00 heure du Sénégal)
+  workflow_dispatch: {}    # bouton "Run workflow" manuel dans l'onglet Actions
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r gee-sync/requirements.txt
+      - name: Lancer la synchronisation
+        env:
+          GEE_SERVICE_ACCOUNT_JSON: ${{ secrets.GEE_SERVICE_ACCOUNT_JSON }}
+          GEE_PROJECT: ${{ secrets.GEE_PROJECT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python gee-sync/sync_gee.py

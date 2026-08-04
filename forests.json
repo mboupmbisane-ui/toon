@@ -1,0 +1,44 @@
+[
+  {
+    "id": "patako",
+    "nom": "Forêt classée de Patako",
+    "lat": 14.02,
+    "lon": -16.05,
+    "superficie": 1200
+  },
+  {
+    "id": "koutal",
+    "nom": "Forêt classée de Koutal",
+    "lat": 14.19,
+    "lon": -16.13,
+    "superficie": 1890
+  },
+  {
+    "id": "kouyong",
+    "nom": "Forêt classée de l'Île Kouyong",
+    "lat": 14.2,
+    "lon": -16.1,
+    "superficie": 430
+  },
+  {
+    "id": "mbirkilane",
+    "nom": "Forêt classée de Mbirkilane",
+    "lat": 14.128,
+    "lon": -15.744,
+    "superficie": 3075
+  },
+  {
+    "id": "kaffrine-foret",
+    "nom": "Forêt classée de Kaffrine",
+    "lat": 14.106,
+    "lon": -15.55,
+    "superficie": 2400
+  },
+  {
+    "id": "samba-dia",
+    "nom": "Forêt classée de Samba Dia",
+    "lat": 14.02,
+    "lon": -16.715,
+    "superficie": 762
+  }
+]
